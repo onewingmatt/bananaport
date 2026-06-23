@@ -20,21 +20,18 @@ const BOT_NAMES = [
 ];
 
 const BOT_ARCHETYPES = [
-    () => Math.max(0, Math.floor(Math.random() * (gameAuctionAmount() + 6))),
-    () => Math.floor(Math.random() * Math.max(1, gameAuctionAmount() / 2 + 1)),
-    () => Math.min(gameAuctionAmount() + 3, Math.floor(gameAuctionAmount() * (0.6 + Math.random() * 0.6))),
-    () => Math.max(1, Math.floor(gameAuctionAmount() * (0.7 + Math.random() * 0.5))),
+    () => Math.max(0, Math.floor(Math.random() * (_gAA() + 6))),
+    () => Math.floor(Math.random() * Math.max(1, _gAA() / 2 + 1)),
+    () => Math.min(_gAA() + 3, Math.floor(_gAA() * (0.6 + Math.random() * 0.6))),
+    () => Math.max(1, Math.floor(_gAA() * (0.7 + Math.random() * 0.5))),
     () => {
-        if (Math.random() < 0.3) return Math.floor(Math.random() * (gameAuctionAmount() + 15));
-        return Math.floor(Math.random() * (gameAuctionAmount() + 1));
+        if (Math.random() < 0.3) return Math.floor(Math.random() * (_gAA() + 15));
+        return Math.floor(Math.random() * (_gAA() + 1));
     }
 ];
 
-let currentArchetypeAuctionAmount = 0;
-
-function gameAuctionAmount() {
-    return currentArchetypeAuctionAmount;
-}
+let _currentAA = 0;
+function _gAA() { return _currentAA; }
 
 function makeGame() {
     return {
@@ -42,7 +39,9 @@ function makeGame() {
         players: [],
         auctionAmount: 10,
         round: 1,
-        botTimers: {}
+        botTimers: {},
+        timer: null,
+        useTimer: false
     };
 }
 
@@ -51,6 +50,7 @@ function getPublicGameState(game) {
         state: game.state,
         auctionAmount: game.auctionAmount,
         round: game.round,
+        useTimer: game.useTimer,
         players: game.players.map(p => ({
             id: p.id,
             name: p.name,
@@ -61,7 +61,8 @@ function getPublicGameState(game) {
             winnings: p.winnings,
             bonusPaid: p.bonusPaid,
             bonusReceived: p.bonusReceived,
-            isBot: p.isBot || false
+            isBot: p.isBot || false,
+            connected: p.connected !== false
         }))
     };
 }
@@ -100,6 +101,7 @@ function addBot(game, roomCode) {
         bonusPaid: 0,
         bonusReceived: 0,
         isBot: true,
+        connected: true,
         archetype: archetype
     });
     emitState(roomCode);
@@ -117,9 +119,8 @@ function removeBot(game, roomCode) {
 
 function submitBotBid(game, roomCode, bot) {
     if (game.state !== 'bidding' || bot.bid !== null) return;
-    currentArchetypeAuctionAmount = game.auctionAmount;
-    const bid = bot.archetype();
-    bot.bid = bid;
+    _currentAA = game.auctionAmount;
+    bot.bid = bot.archetype();
     emitState(roomCode);
     checkAllBids(game, roomCode);
 }
@@ -141,10 +142,56 @@ function clearBotTimers(game) {
     game.botTimers = {};
 }
 
+// ─── Timer System ─────────────────────────────────────────────────────────
+
+function startBiddingTimer(game, roomCode) {
+    clearBiddingTimer(game);
+    if (!game.useTimer) return;
+    let remaining = 30;
+    io.to(roomCode).emit('timer', remaining);
+    game.timer = setInterval(() => {
+        remaining--;
+        io.to(roomCode).emit('timer', remaining);
+        if (remaining <= 0) {
+            clearBiddingTimer(game);
+            // Auto-submit bid 0 for anyone who hasn't bid
+            game.players.forEach(p => {
+                if (p.bid === null && !p.isBot) {
+                    p.bid = 0;
+                }
+            });
+            emitState(roomCode);
+            checkAllBids(game, roomCode);
+        }
+    }, 1000);
+}
+
+function clearBiddingTimer(game) {
+    if (game.timer) {
+        clearInterval(game.timer);
+        game.timer = null;
+    }
+}
+
+// ─── Stale Player Cleanup ─────────────────────────────────────────────────
+
+function cleanupStalePlayers() {
+    const now = Date.now();
+    for (const [roomCode, game] of games) {
+        const toRemove = game.players.filter(p => !p.isBot && p.connected === false && (now - p._disconnectedAt) > 60000);
+        if (toRemove.length > 0) {
+            game.players = game.players.filter(p => !toRemove.includes(p));
+            emitState(roomCode);
+        }
+    }
+}
+setInterval(cleanupStalePlayers, 30000);
+
 // ─── Game Logic ────────────────────────────────────────────────────────────
 
 function checkAllBids(game, roomCode) {
     if (game.players.every(p => p.bid !== null)) {
+        clearBiddingTimer(game);
         clearBotTimers(game);
         resolveAuction(game);
         emitState(roomCode);
@@ -253,22 +300,44 @@ io.on('connection', (socket) => {
     socket.on('join', (name) => {
         withGame(socket, (game, roomCode) => {
             if (game.state !== 'waiting') {
+                // Try reconnect — match by name to a disconnected player
+                const existing = game.players.find(p => p.name === name && p.connected === false);
+                if (existing) {
+                    existing.id = socket.id;
+                    existing.connected = true;
+                    delete existing._disconnectedAt;
+                    emitState(roomCode);
+                    return;
+                }
                 socket.emit('error', 'Game already in progress');
                 return;
             }
-            if (!game.players.find(p => p.id === socket.id)) {
-                game.players.push({
-                    id: socket.id,
-                    name: name || `Player ${game.players.length + 1}`,
-                    stock: 10,
-                    bid: null,
-                    bankrupt: false,
-                    winnings: 0,
-                    bonusPaid: 0,
-                    bonusReceived: 0,
-                    isBot: false
-                });
+            // Check if name is already taken by a connected player
+            if (game.players.find(p => p.name === name && p.connected !== false)) {
+                socket.emit('error', 'Name already taken');
+                return;
             }
+            // Check if reconnecting to an old slot
+            const existing = game.players.find(p => p.name === name);
+            if (existing) {
+                existing.id = socket.id;
+                existing.connected = true;
+                delete existing._disconnectedAt;
+                emitState(roomCode);
+                return;
+            }
+            game.players.push({
+                id: socket.id,
+                name: name || `Player ${game.players.length + 1}`,
+                stock: 10,
+                bid: null,
+                bankrupt: false,
+                winnings: 0,
+                bonusPaid: 0,
+                bonusReceived: 0,
+                isBot: false,
+                connected: true
+            });
             emitState(roomCode);
         });
     });
@@ -279,6 +348,13 @@ io.on('connection', (socket) => {
 
     socket.on('remove_bot', () => {
         withGame(socket, (game, roomCode) => removeBot(game, roomCode));
+    });
+
+    socket.on('toggle_timer', () => {
+        withGame(socket, (game, roomCode) => {
+            game.useTimer = !game.useTimer;
+            emitState(roomCode);
+        });
     });
 
     socket.on('start_game', () => {
@@ -297,6 +373,7 @@ io.on('connection', (socket) => {
                 });
                 emitState(roomCode);
                 triggerBotBids(game, roomCode);
+                startBiddingTimer(game, roomCode);
             }
         });
     });
@@ -309,6 +386,10 @@ io.on('connection', (socket) => {
                     player.bid = parseInt(bidAmount, 10);
                     if (isNaN(player.bid) || player.bid < 0) player.bid = 0;
                     emitState(roomCode);
+                    // Check if only bots remain — resolve immediately
+                    if (game.players.filter(p => !p.isBot).every(p => p.bid !== null)) {
+                        clearBiddingTimer(game);
+                    }
                     checkAllBids(game, roomCode);
                 }
             }
@@ -324,6 +405,7 @@ io.on('connection', (socket) => {
                 game.players.forEach(p => { p.bid = null; });
                 emitState(roomCode);
                 triggerBotBids(game, roomCode);
+                startBiddingTimer(game, roomCode);
             }
         });
     });
@@ -331,6 +413,7 @@ io.on('connection', (socket) => {
     socket.on('play_again', () => {
         withGame(socket, (game, roomCode) => {
             if (game.state === 'gameover' || game.state === 'resolution') {
+                clearBiddingTimer(game);
                 game.state = 'waiting';
                 game.players.forEach(p => {
                     p.stock = 10;
@@ -346,12 +429,19 @@ io.on('connection', (socket) => {
         if (roomCode) {
             const game = games.get(roomCode);
             if (game) {
-                game.players = game.players.filter(p => p.id !== socket.id);
-                if (game.players.length === 0) {
-                    clearBotTimers(game);
-                    games.delete(roomCode);
-                } else if (game.players.filter(p => !p.isBot).length === 0 && game.state !== 'waiting') {
+                const player = game.players.find(p => p.id === socket.id);
+                if (player) {
+                    if (player.isBot) {
+                        game.players = game.players.filter(p => p.id !== socket.id);
+                    } else {
+                        player.connected = false;
+                        player._disconnectedAt = Date.now();
+                    }
+                }
+                // If no humans left, reset game
+                if (game.players.filter(p => !p.isBot && p.connected !== false).length === 0 && game.state !== 'waiting') {
                     game.state = 'waiting';
+                    clearBiddingTimer(game);
                     clearBotTimers(game);
                     emitState(roomCode);
                 } else {
