@@ -1,20 +1,21 @@
 :root {
-    --primary: #fce205;
-    --secondary: #8b4513;
-    --bg: #1a2a3a;
-    --surface: #2a3a4a;
-    --text: #e8e0d0;
-    --muted: #8a9aaa;
-    --success: #2ecc71;
-    --danger: #e74c3c;
-    --card-shadow: 0 4px 15px rgba(0,0,0,0.3);
+    --gold: #f0b830;
+    --wood: #6a3410;
+    --bg: #0f1a24;
+    --surface: #1a2a3a;
+    --text: #e8ddd0;
+    --muted: #7a8a9a;
+    --success: #34d399;
+    --danger: #f87171;
+    --accent: #f59e0b;
+    --card-shadow: 0 4px 20px rgba(0,0,0,0.4);
 }
 
 * { box-sizing: border-box; }
 
 body {
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-    background: var(--bg);
+    background: linear-gradient(180deg, #0a1520 0%, #0f1a24 40%, #13202e 100%);
     color: var(--text);
     margin: 0;
     padding: 20px;
@@ -99,10 +100,10 @@ header {
 }
 
 header h1 {
-    color: var(--primary);
+    color: var(--gold);
     font-size: 2em;
     margin: 0;
-    text-shadow: 0 2px 8px rgba(252,226,5,0.3);
+    text-shadow: 0 2px 12px rgba(240,184,48,0.25);
     letter-spacing: 1px;
 }
 
@@ -138,8 +139,8 @@ header h1 {
 /* ─── Buttons ────────────────────────────────────────────────────────── */
 
 button {
-    background: var(--primary);
-    color: var(--secondary);
+    background: var(--gold);
+    color: var(--wood);
     border: none;
     padding: 10px 24px;
     font-size: 1.05em;
@@ -148,12 +149,14 @@ button {
     cursor: pointer;
     transition: all 0.2s;
     margin: 8px;
-    box-shadow: 0 2px 8px rgba(252,226,5,0.2);
+    box-shadow: 0 2px 8px rgba(240,184,48,0.15);
 }
 
 button:hover {
+    background: var(--accent);
+    color: #1a1a1a;
     transform: translateY(-2px);
-    box-shadow: 0 4px 16px rgba(252,226,5,0.3);
+    box-shadow: 0 4px 16px rgba(245,158,11,0.3);
 }
 
 button:active {
@@ -184,7 +187,7 @@ input {
 
 input:focus {
     outline: none;
-    border-color: var(--primary);
+    border-color: var(--gold);
 }
 
 /* ─── Views ──────────────────────────────────────────────────────────── */
@@ -214,7 +217,7 @@ input:focus {
 }
 
 #login-view h2 {
-    color: var(--primary);
+    color: var(--gold);
     font-size: 1.6em;
     margin-bottom: 8px;
 }
@@ -253,12 +256,12 @@ input:focus {
 
 .player-card.ready {
     border-color: var(--success);
-    background: rgba(46,204,113,0.12);
+    background: rgba(52,211,153,0.1);
 }
 
 .player-card.bankrupt {
     border-color: var(--danger);
-    background: rgba(231,76,60,0.1);
+    background: rgba(248,113,113,0.1);
 }
 
 .player-card .player-name {
@@ -299,8 +302,8 @@ input:focus {
 /* ─── Auction Board ──────────────────────────────────────────────────── */
 
 .auction-board {
-    background: linear-gradient(135deg, var(--secondary), #6a3410);
-    color: var(--primary);
+    background: linear-gradient(135deg, var(--wood), #5a2a08);
+    color: var(--gold);
     border-radius: 14px;
     padding: 24px;
     margin: 16px auto;
@@ -325,8 +328,8 @@ input:focus {
 }
 
 @keyframes pulseGlow {
-    0%, 100% { text-shadow: 0 0 10px rgba(252,226,5,0.2); }
-    50% { text-shadow: 0 0 24px rgba(252,226,5,0.5); }
+    0%, 100% { text-shadow: 0 0 10px rgba(240,184,48,0.2); }
+    50% { text-shadow: 0 0 24px rgba(240,184,48,0.5); }
 }
 
 .auction-board .auction-label {
@@ -356,7 +359,7 @@ input:focus {
 /* ─── Resolution ─────────────────────────────────────────────────────── */
 
 #resolution-view h2 {
-    color: var(--primary);
+    color: var(--gold);
     margin-bottom: 12px;
     text-align: center;
 }
@@ -380,12 +383,12 @@ input:focus {
 }
 
 .resolution-row.winner {
-    background: rgba(46,204,113,0.1);
+    background: rgba(52,211,153,0.1);
     border-left-color: var(--success);
 }
 
 .resolution-row.bankrupt {
-    background: rgba(231,76,60,0.08);
+    background: rgba(248,113,113,0.08);
     border-left-color: var(--danger);
 }
 
@@ -411,14 +414,14 @@ input:focus {
 
 #gameover-view h2 {
     font-size: 2em;
-    color: var(--primary);
+    color: var(--gold);
     text-align: center;
     animation: celebrate 1s ease-in-out infinite alternate;
 }
 
 @keyframes celebrate {
     from { transform: scale(1); }
-    to { transform: scale(1.05); text-shadow: 0 0 30px rgba(252,226,5,0.6); }
+    to { transform: scale(1.05); text-shadow: 0 0 30px rgba(240,184,48,0.6); }
 }
 
 #winner-announcement {
@@ -457,7 +460,7 @@ input:focus {
     padding-top: 16px;
     border-top: 1px solid rgba(255,255,255,0.06);
     font-weight: bold;
-    color: var(--primary);
+    color: var(--gold);
     font-size: 0.95em;
     text-align: center;
 }
