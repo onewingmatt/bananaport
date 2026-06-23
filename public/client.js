@@ -1,7 +1,7 @@
 
 // ─── Player Colors ───────────────────────────────────────────────────
 
-var PLAYER_COLORS = ['#ef4444', '#10b981', '#3b82f6', '#f59e0b', '#8b5cf6', '#14b8a6', '#f97316', '#64748b'];
+var PLAYER_COLORS = ['#ef4444', '#10b981', '#0ea5e9', '#f59e0b', '#8b5cf6', '#14b8a6', '#f97316', '#64748b'];
 
 function playerColor(index) {
     return PLAYER_COLORS[index % PLAYER_COLORS.length];

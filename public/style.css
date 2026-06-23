@@ -1,7 +1,7 @@
 :root {
     --sun: #f59e0b;
+    --ocean: #0ea5e9;
     --coral: #ef4444;
-    --teal: #0d9488;
     --sky: #e0f2fe;
     --sand: #fef3c7;
     --surface: #ffffff;
@@ -17,7 +17,7 @@
 
 body {
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-    background: linear-gradient(180deg, #bae6fd 0%, #fef3c7 60%, #fde68a 100%);
+    background: linear-gradient(180deg, #7dd3fc 0%, #bae6fd 35%, #fef3c7 70%, #fde68a 100%);
     color: var(--text);
     margin: 0;
     padding: 20px;
@@ -49,13 +49,13 @@ body {
 }
 
 .wave-1 {
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 120'%3E%3Cpath d='M0,60 C200,110 400,10 600,60 C800,110 1000,10 1200,60 L1200,120 L0,120 Z' fill='rgba(13,148,136,0.12)'/%3E%3C/svg%3E");
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 120'%3E%3Cpath d='M0,60 C200,110 400,10 600,60 C800,110 1000,10 1200,60 L1200,120 L0,120 Z' fill='rgba(14,165,233,0.2)'/%3E%3C/svg%3E");
     background-size: 1200px 120px;
     animation-duration: 8s;
 }
 
 .wave-2 {
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 120'%3E%3Cpath d='M0,80 C250,20 400,100 600,80 C800,60 1000,100 1200,80 L1200,120 L0,120 Z' fill='rgba(6,182,212,0.08)'/%3E%3C/svg%3E");
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 120'%3E%3Cpath d='M0,80 C250,20 400,100 600,80 C800,60 1000,100 1200,80 L1200,120 L0,120 Z' fill='rgba(56,189,248,0.14)'/%3E%3C/svg%3E");
     background-size: 1200px 120px;
     animation-duration: 11s;
     animation-direction: reverse;
@@ -63,7 +63,7 @@ body {
 }
 
 .wave-3 {
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 120'%3E%3Cpath d='M0,40 C150,90 350,0 600,50 C850,100 1050,20 1200,60 L1200,120 L0,120 Z' fill='rgba(20,184,166,0.06)'/%3E%3C/svg%3E");
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 120'%3E%3Cpath d='M0,40 C150,90 350,0 600,50 C850,100 1050,20 1200,60 L1200,120 L0,120 Z' fill='rgba(125,211,252,0.1)'/%3E%3C/svg%3E");
     background-size: 1200px 120px;
     animation-duration: 14s;
     bottom: -20px;
@@ -95,7 +95,7 @@ header {
     position: relative;
     margin-bottom: 20px;
     padding-bottom: 16px;
-    border-bottom: 2px solid rgba(0,0,0,0.06);
+    border-bottom: 2px solid rgba(14,165,233,0.15);
 }
 
 header h1 {
@@ -300,13 +300,13 @@ input:focus {
 /* ─── Auction Board ──────────────────────────────────────────────────── */
 
 .auction-board {
-    background: linear-gradient(135deg, #0d9488, #0f766e);
+    background: linear-gradient(135deg, #0284c7, #0369a1);
     color: white;
     border-radius: 14px;
     padding: 24px;
     margin: 16px auto;
     width: 85%;
-    box-shadow: 0 4px 16px rgba(13,148,136,0.2);
+    box-shadow: 0 4px 16px rgba(2,132,199,0.2);
     text-align: center;
 }
 
@@ -357,7 +357,7 @@ input:focus {
 /* ─── Resolution ─────────────────────────────────────────────────────── */
 
 #resolution-view h2 {
-    color: var(--teal);
+    color: var(--ocean);
     margin-bottom: 12px;
     text-align: center;
 }
@@ -424,7 +424,7 @@ input:focus {
 
 #winner-announcement {
     font-size: 1.3em;
-    color: var(--teal);
+    color: var(--ocean);
     margin: 12px 0;
     text-align: center;
 }
