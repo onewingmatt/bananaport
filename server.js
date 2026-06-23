@@ -44,9 +44,11 @@ let botTimers = {};
 
 function addBot() {
     if (game.state !== 'waiting') return null;
-    const botCount = game.players.filter(p => p.isBot).length;
-    const name = BOT_NAMES[botCount % BOT_NAMES.length];
+    const usedNames = new Set(game.players.map(p => p.name));
+    const available = BOT_NAMES.filter(n => !usedNames.has(n));
+    const name = available.length > 0 ? available[Math.floor(Math.random() * available.length)] : 'Pirate Bot';
     const botId = `bot_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const archetype = BOT_ARCHETYPES[Math.floor(Math.random() * BOT_ARCHETYPES.length)];
     game.players.push({
         id: botId,
         name: name,
@@ -57,7 +59,7 @@ function addBot() {
         bonusPaid: 0,
         bonusReceived: 0,
         isBot: true,
-        archetype: BOT_ARCHETYPES[botCount % BOT_ARCHETYPES.length]
+        archetype: archetype
     });
     io.emit('state', getPublicGameState());
     return botId;
