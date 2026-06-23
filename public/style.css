@@ -1,83 +1,223 @@
 :root {
-    --primary-color: #fce205; /* Banana Yellow */
-    --secondary-color: #8b4513; /* Brown for crates */
-    --bg-color: #f0f8ff; /* Light blue for water/sky */
-    --text-color: #333;
-    --success-color: #2e8b57;
-    --danger-color: #cd5c5c;
+    --primary: #fce205;
+    --secondary: #8b4513;
+    --bg: #1a2a3a;
+    --surface: #2a3a4a;
+    --text: #e8e0d0;
+    --muted: #8a9aaa;
+    --success: #2ecc71;
+    --danger: #e74c3c;
+    --card-shadow: 0 4px 15px rgba(0,0,0,0.3);
 }
+
+* { box-sizing: border-box; }
 
 body {
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-    background-color: var(--bg-color);
-    color: var(--text-color);
+    background: var(--bg);
+    color: var(--text);
     margin: 0;
-    padding: 0;
+    padding: 20px;
+    min-height: 100vh;
     display: flex;
     justify-content: center;
     align-items: center;
-    min-height: 100vh;
 }
 
+/* ─── Ocean Waves ──────────────────────────────────────────────────── */
+
+.ocean {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    height: 120px;
+    pointer-events: none;
+    z-index: 0;
+}
+
+.wave {
+    position: absolute;
+    bottom: 0;
+    width: 200%;
+    height: 100%;
+    background-repeat: repeat-x;
+    animation: waveMove 8s linear infinite;
+}
+
+.wave-1 {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 120'%3E%3Cpath d='M0,60 C200,110 400,10 600,60 C800,110 1000,10 1200,60 L1200,120 L0,120 Z' fill='rgba(46,134,171,0.15)'/%3E%3C/svg%3E");
+    background-size: 1200px 120px;
+    animation-duration: 8s;
+    opacity: 0.6;
+}
+
+.wave-2 {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 120'%3E%3Cpath d='M0,80 C250,20 400,100 600,80 C800,60 1000,100 1200,80 L1200,120 L0,120 Z' fill='rgba(52,152,219,0.1)'/%3E%3C/svg%3E");
+    background-size: 1200px 120px;
+    animation-duration: 11s;
+    animation-direction: reverse;
+    opacity: 0.4;
+    bottom: -10px;
+}
+
+.wave-3 {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 120'%3E%3Cpath d='M0,40 C150,90 350,0 600,50 C850,100 1050,20 1200,60 L1200,120 L0,120 Z' fill='rgba(26,188,156,0.08)'/%3E%3C/svg%3E");
+    background-size: 1200px 120px;
+    animation-duration: 14s;
+    opacity: 0.3;
+    bottom: -20px;
+}
+
+@keyframes waveMove {
+    0% { transform: translateX(0); }
+    100% { transform: translateX(-50%); }
+}
+
+/* ─── App Shell ─────────────────────────────────────────────────────── */
+
 #app {
-    background: white;
-    border-radius: 12px;
-    box-shadow: 0 4px 15px rgba(0,0,0,0.1);
-    width: 90%;
+    background: var(--surface);
+    border-radius: 16px;
+    box-shadow: var(--card-shadow);
+    width: 100%;
     max-width: 800px;
-    padding: 20px;
-    text-align: center;
+    padding: 24px;
+    position: relative;
+    z-index: 1;
+    border: 1px solid rgba(255,255,255,0.08);
+}
+
+header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+    padding-bottom: 16px;
+    border-bottom: 2px solid rgba(255,255,255,0.06);
 }
 
 header h1 {
-    color: var(--secondary-color);
-    font-size: 2.5em;
-    margin-bottom: 20px;
-    text-shadow: 2px 2px 4px var(--primary-color);
+    color: var(--primary);
+    font-size: 2em;
+    margin: 0;
+    text-shadow: 0 2px 8px rgba(252,226,5,0.3);
+    letter-spacing: 1px;
 }
 
-button {
-    background-color: var(--primary-color);
-    color: var(--secondary-color);
-    border: 2px solid var(--secondary-color);
-    padding: 10px 20px;
+.header-controls {
+    display: flex;
+    gap: 8px;
+}
+
+.sound-btn {
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.12);
+    color: var(--muted);
+    padding: 6px 12px;
     font-size: 1.1em;
-    font-weight: bold;
     border-radius: 8px;
     cursor: pointer;
     transition: all 0.2s;
-    margin: 10px;
+    margin: 0;
+}
+
+.sound-btn:hover {
+    background: rgba(255,255,255,0.12);
+    color: var(--text);
+}
+
+.sound-btn.muted {
+    opacity: 0.4;
+    text-decoration: line-through;
+}
+
+/* ─── Buttons ────────────────────────────────────────────────────────── */
+
+button {
+    background: var(--primary);
+    color: var(--secondary);
+    border: none;
+    padding: 10px 24px;
+    font-size: 1.05em;
+    font-weight: bold;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: all 0.2s;
+    margin: 8px;
+    box-shadow: 0 2px 8px rgba(252,226,5,0.2);
 }
 
 button:hover {
-    background-color: var(--secondary-color);
-    color: var(--primary-color);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 16px rgba(252,226,5,0.3);
+}
+
+button:active {
+    transform: translateY(0);
 }
 
 button:disabled {
-    background-color: #ccc;
-    border-color: #999;
-    color: #666;
+    background: #3a4a5a;
+    color: #6a7a8a;
     cursor: not-allowed;
+    box-shadow: none;
+    transform: none;
 }
 
+/* ─── Inputs ─────────────────────────────────────────────────────────── */
+
 input {
-    padding: 10px;
-    font-size: 1.1em;
-    border: 2px solid var(--secondary-color);
-    border-radius: 8px;
-    margin: 10px;
+    padding: 10px 16px;
+    font-size: 1.05em;
+    border: 2px solid rgba(255,255,255,0.12);
+    border-radius: 10px;
+    margin: 8px;
     text-align: center;
+    background: rgba(0,0,0,0.2);
+    color: var(--text);
+    transition: border-color 0.2s;
 }
+
+input:focus {
+    outline: none;
+    border-color: var(--primary);
+}
+
+/* ─── Views ──────────────────────────────────────────────────────────── */
 
 .view {
     display: none;
-    animation: fadeIn 0.3s;
+    animation: fadeSlideIn 0.35s ease-out;
 }
 
-.view.active {
-    display: block;
+.view.active { display: block; }
+
+@keyframes fadeSlideIn {
+    from {
+        opacity: 0;
+        transform: translateY(12px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
+
+/* ─── Login ──────────────────────────────────────────────────────────── */
+
+#login-view h2 {
+    color: var(--primary);
+    font-size: 1.6em;
+    margin-bottom: 8px;
+}
+
+#login-view p {
+    color: var(--muted);
+    margin-bottom: 20px;
+}
+
+/* ─── Player List ────────────────────────────────────────────────────── */
 
 .player-list {
     list-style: none;
@@ -85,93 +225,235 @@ input {
     display: flex;
     flex-wrap: wrap;
     justify-content: center;
-    gap: 15px;
+    gap: 12px;
 }
 
 .player-card {
-    background: var(--primary-color);
-    border: 2px solid var(--secondary-color);
-    border-radius: 10px;
-    padding: 15px;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 12px;
+    padding: 14px 20px;
     min-width: 150px;
     text-align: center;
+    transition: all 0.3s;
+    animation: cardPop 0.3s ease-out;
+}
+
+@keyframes cardPop {
+    from { transform: scale(0.9); opacity: 0; }
+    to { transform: scale(1); opacity: 1; }
 }
 
 .player-card.ready {
-    background: var(--success-color);
-    color: white;
+    border-color: var(--success);
+    background: rgba(46,204,113,0.12);
 }
 
-.auction-board {
-    background: var(--secondary-color);
-    color: var(--primary-color);
-    border-radius: 10px;
-    padding: 20px;
-    margin: 20px auto;
-    width: 80%;
-    font-size: 1.5em;
+.player-card.bankrupt {
+    border-color: var(--danger);
+    background: rgba(231,76,60,0.1);
 }
 
-.resolution-card {
-    background: #fff3cd;
-    border: 1px solid #ffe69c;
-    padding: 10px;
-    margin: 10px 0;
-    border-radius: 8px;
-}
-
-.resolution-card.winner {
-    background: #d1e7dd;
-    border-color: #badbcc;
-}
-
-.resolution-card.bankrupt {
-    background: #f8d7da;
-    border-color: #f5c2c7;
-}
-
-#player-status {
-    margin-top: 30px;
-    padding-top: 20px;
-    border-top: 2px dashed #ccc;
+.player-card .player-name {
+    font-size: 1.05em;
     font-weight: bold;
 }
 
+.player-card .player-stock {
+    font-size: 0.85em;
+    color: var(--muted);
+    margin-top: 4px;
+}
+
+/* ─── Bot Controls ───────────────────────────────────────────────────── */
+
+.bot-controls {
+    margin: 16px 0;
+}
+
+.btn-small {
+    padding: 6px 16px;
+    font-size: 0.85em;
+    margin: 0 4px;
+    background: rgba(255,255,255,0.08);
+    color: var(--muted);
+    border: 1px solid rgba(255,255,255,0.12);
+    box-shadow: none;
+}
+
+.btn-small:hover {
+    background: rgba(255,255,255,0.15);
+    color: var(--text);
+    box-shadow: none;
+    transform: none;
+}
+
+/* ─── Auction Board ──────────────────────────────────────────────────── */
+
+.auction-board {
+    background: linear-gradient(135deg, var(--secondary), #6a3410);
+    color: var(--primary);
+    border-radius: 14px;
+    padding: 24px;
+    margin: 16px auto;
+    width: 85%;
+    box-shadow: inset 0 2px 10px rgba(0,0,0,0.3);
+}
+
+.auction-board h3 {
+    margin: 0 0 8px 0;
+    font-size: 1em;
+    opacity: 0.8;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+}
+
+.auction-board .amount {
+    font-size: 2.2em;
+    font-weight: bold;
+    display: inline-block;
+    animation: pulseGlow 2s ease-in-out infinite;
+}
+
+@keyframes pulseGlow {
+    0%, 100% { text-shadow: 0 0 10px rgba(252,226,5,0.2); }
+    50% { text-shadow: 0 0 24px rgba(252,226,5,0.5); }
+}
+
+.auction-board .auction-label {
+    font-size: 0.85em;
+    opacity: 0.7;
+    margin-top: 4px;
+}
+
+/* ─── Bidding ────────────────────────────────────────────────────────── */
+
+#bidding-area {
+    margin: 16px 0;
+}
+
+#bidding-status {
+    color: var(--muted);
+    font-style: italic;
+    margin: 8px 0;
+}
+
+#bid-input {
+    width: 120px;
+}
+
+/* ─── Resolution ─────────────────────────────────────────────────────── */
+
+#resolution-view h2 {
+    color: var(--primary);
+    margin-bottom: 12px;
+}
+
+.resolution-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin: 16px 0;
+}
+
+.resolution-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    border-radius: 10px;
+    background: rgba(255,255,255,0.04);
+    border-left: 4px solid rgba(255,255,255,0.1);
+    transition: all 0.3s;
+}
+
+.resolution-row.winner {
+    background: rgba(46,204,113,0.1);
+    border-left-color: var(--success);
+}
+
+.resolution-row.bankrupt {
+    background: rgba(231,76,60,0.08);
+    border-left-color: var(--danger);
+}
+
+.resolution-row .res-player {
+    font-weight: bold;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.resolution-row .res-details {
+    text-align: right;
+    font-size: 0.9em;
+    color: var(--muted);
+}
+
+.resolution-row .res-details strong {
+    color: var(--text);
+    font-size: 1.1em;
+}
+
+/* ─── Game Over ──────────────────────────────────────────────────────── */
+
+#gameover-view h2 {
+    font-size: 2em;
+    color: var(--primary);
+    animation: celebrate 1s ease-in-out infinite alternate;
+}
+
+@keyframes celebrate {
+    from { transform: scale(1); }
+    to { transform: scale(1.05); text-shadow: 0 0 30px rgba(252,226,5,0.6); }
+}
+
+#winner-announcement {
+    font-size: 1.3em;
+    color: var(--success);
+    margin: 12px 0;
+}
+
+#final-scores {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin: 16px 0;
+}
+
+/* ─── Bot Tag ──────────────────────────────────────────────────────────── */
+
 .bot-tag {
     display: inline-block;
-    background: var(--secondary-color);
-    color: var(--primary-color);
+    background: rgba(255,255,255,0.1);
+    color: var(--muted);
     font-size: 0.7em;
     padding: 2px 8px;
     border-radius: 10px;
     margin-left: 6px;
     vertical-align: middle;
     font-weight: bold;
+    letter-spacing: 0.5px;
 }
 
-.bot-controls {
-    margin: 15px 0;
+/* ─── Footer ──────────────────────────────────────────────────────────── */
+
+#player-status {
+    margin-top: 24px;
+    padding-top: 16px;
+    border-top: 1px solid rgba(255,255,255,0.06);
+    font-weight: bold;
+    color: var(--primary);
+    font-size: 0.95em;
 }
 
-.btn-small {
-    padding: 6px 14px;
-    font-size: 0.9em;
-    margin: 0 5px;
-}
+/* ─── Responsive ──────────────────────────────────────────────────────── */
 
-.btn-secondary {
-    background: #e0e0e0;
-    border-color: #999;
-    color: #555;
-}
-
-.btn-secondary:hover {
-    background: #999;
-    color: white;
-    border-color: #666;
-}
-
-@keyframes fadeIn {
-    from { opacity: 0; }
-    to { opacity: 1; }
+@media (max-width: 600px) {
+    #app { padding: 16px; }
+    header h1 { font-size: 1.4em; }
+    .auction-board .amount { font-size: 1.6em; }
+    .player-card { min-width: 120px; padding: 10px 14px; }
+    .resolution-row { flex-direction: column; text-align: center; gap: 4px; }
+    .resolution-row .res-details { text-align: center; }
 }

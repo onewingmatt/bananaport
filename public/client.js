@@ -1,222 +1,345 @@
 
-function escapeHtml(unsafe) {
-    return (unsafe || '').toString()
-         .replace(/&/g, "&amp;")
-         .replace(/</g, "&lt;")
-         .replace(/>/g, "&gt;")
-         .replace(/"/g, "&quot;")
-         .replace(/'/g, "&#039;");
+// ─── Player Colors ───────────────────────────────────────────────────
+
+var PLAYER_COLORS = ['#e74c3c', '#2ecc71', '#3498db', '#f39c12', '#9b59b6', '#1abc9c', '#e67e22', '#34495e'];
+
+function playerColor(index) {
+    return PLAYER_COLORS[index % PLAYER_COLORS.length];
 }
 
-const socket = io();
+// ─── Sound System (Web Audio, no files) ─────────────────────────────
 
-// Views
-const views = {
-    login: `
-        <div id="login-view" class="view active">
-            <h2>Welcome to the Docks</h2>
-            <p>Enter your Captain name to join.</p>
-            <input type="text" id="player-name" placeholder="Captain Banana">
-            <button onclick="joinGame()">Join Game</button>
-        </div>
-    `,
-    waiting: `
-        <div id="waiting-view" class="view">
-            <h2>Waiting for Players...</h2>
-            <ul id="waiting-players" class="player-list"></ul>
-            <div class="bot-controls">
-                <button onclick="addBot()" class="btn-small">+ Add Bot</button>
-                <button onclick="removeBot()" class="btn-small btn-secondary">- Remove Bot</button>
-            </div>
-            <button id="start-btn" onclick="startGame()" disabled>Start Game</button>
-        </div>
-    `,
-    bidding: `
-        <div id="bidding-view" class="view">
-            <div class="auction-board">
-                <h3>Round <span id="round-number"></span></h3>
-                <p>Bananas on Auction: <strong><span id="auction-amount"></span> 🍌</strong></p>
-            </div>
-            <div id="bidding-area">
-                <p>Enter your secret bid:</p>
-                <input type="number" id="bid-input" min="0" placeholder="0">
-                <button id="submit-bid-btn" onclick="submitBid()">Place Bid</button>
-            </div>
-            <p id="bidding-status"></p>
-            <ul id="bidding-players" class="player-list"></ul>
-        </div>
-    `,
-    resolution: `
-        <div id="resolution-view" class="view">
-            <h2>Auction Results</h2>
-            <div class="auction-board">
-                <p>Auction was for: <strong><span id="res-auction-amount"></span> 🍌</strong></p>
-            </div>
-            <div id="resolution-details"></div>
-            <button id="next-round-btn" onclick="nextRound()" style="display:none;">Next Round</button>
-        </div>
-    `,
-    gameover: `
-        <div id="gameover-view" class="view">
-            <h2>Game Over!</h2>
-            <h3 id="winner-announcement"></h3>
-            <div id="final-scores"></div>
-            <button onclick="playAgain()">Play Again</button>
-        </div>
-    `
+var Sound = {
+    ctx: null,
+    enabled: true,
+    _init: function() {
+        if (!this.ctx) {
+            try {
+                this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+            } catch(e) {
+                this.enabled = false;
+            }
+        }
+        if (this.ctx && this.ctx.state === 'suspended') {
+            this.ctx.resume();
+        }
+    },
+    _play: function(freq, duration, type, vol) {
+        if (!this.enabled) return;
+        this._init();
+        if (!this.ctx) return;
+        var osc = this.ctx.createOscillator();
+        var gain = this.ctx.createGain();
+        osc.type = type || 'sine';
+        osc.frequency.setValueAtTime(freq, this.ctx.currentTime);
+        gain.gain.setValueAtTime(vol || 0.12, this.ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + duration);
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start();
+        osc.stop(this.ctx.currentTime + duration);
+    },
+    bid: function() {
+        this._play(880, 0.08, 'sine', 0.08);
+    },
+    win: function() {
+        var self = this;
+        self._play(523, 0.12, 'sine', 0.1);
+        setTimeout(function() { self._play(659, 0.12, 'sine', 0.1); }, 120);
+        setTimeout(function() { self._play(784, 0.25, 'sine', 0.1); }, 240);
+    },
+    bankrupt: function() {
+        var self = this;
+        self._play(400, 0.2, 'sawtooth', 0.06);
+        setTimeout(function() { self._play(300, 0.25, 'sawtooth', 0.06); }, 200);
+        setTimeout(function() { self._play(200, 0.4, 'sawtooth', 0.06); }, 400);
+    },
+    gameover: function() {
+        var self = this;
+        var notes = [523, 659, 784, 1047];
+        notes.forEach(function(f, i) {
+            setTimeout(function() { self._play(f, 0.18, 'sine', 0.1); }, i * 140);
+        });
+    },
+    toggle: function() {
+        this.enabled = !this.enabled;
+        var btn = document.getElementById('sound-toggle');
+        if (btn) btn.classList.toggle('muted');
+        if (this.enabled) this._play(880, 0.1, 'sine', 0.06);
+    }
 };
 
-let myId = null;
-let currentView = 'login';
+// ─── HTML Escape ─────────────────────────────────────────────────────
 
-document.getElementById('main-content').innerHTML = Object.values(views).join('');
+function escapeHtml(unsafe) {
+    return (unsafe || '').toString()
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
+// ─── Socket ──────────────────────────────────────────────────────────
+
+var socket = io();
+var myId = null;
+var currentView = 'login';
+var playerIndexMap = {};
+
+// Views
+var views = {
+    login: '' +
+        '<div id="login-view" class="view active">' +
+            '<h2>Welcome to the Docks</h2>' +
+            '<p>Enter your Captain name to join the auction.</p>' +
+            '<input type="text" id="player-name" placeholder="Captain Banana">' +
+            '<br><button onclick="joinGame()">Join Game</button>' +
+        '</div>',
+    waiting: '' +
+        '<div id="waiting-view" class="view">' +
+            '<h2>Waiting for Crew...</h2>' +
+            '<ul id="waiting-players" class="player-list"></ul>' +
+            '<div class="bot-controls">' +
+                '<button onclick="addBot()" class="btn-small">+ Add Bot</button>' +
+                '<button onclick="removeBot()" class="btn-small btn-secondary">- Remove Bot</button>' +
+            '</div>' +
+            '<button id="start-btn" onclick="startGame()" disabled>Start Game</button>' +
+        '</div>',
+    bidding: '' +
+        '<div id="bidding-view" class="view">' +
+            '<div class="auction-board">' +
+                '<h3>Round <span id="round-number"></span></h3>' +
+                '<div class="amount"><span id="auction-amount"></span> 🍌</div>' +
+                '<div class="auction-label">Bananas on Auction</div>' +
+            '</div>' +
+            '<div id="bidding-area">' +
+                '<p>Enter your secret bid:</p>' +
+                '<input type="number" id="bid-input" min="0" placeholder="0">' +
+                '<br><button id="submit-bid-btn" onclick="submitBid()">Place Bid</button>' +
+            '</div>' +
+            '<p id="bidding-status"></p>' +
+            '<ul id="bidding-players" class="player-list"></ul>' +
+        '</div>',
+    resolution: '' +
+        '<div id="resolution-view" class="view">' +
+            '<h2>Auction Results</h2>' +
+            '<div class="auction-board" style="padding:12px 20px;width:auto;">' +
+                '<p style="margin:0">Auction was for: <strong><span id="res-auction-amount"></span> 🍌</strong></p>' +
+            '</div>' +
+            '<div id="resolution-details" class="resolution-list"></div>' +
+            '<button id="next-round-btn" onclick="nextRound()" style="display:none;">Next Round</button>' +
+        '</div>',
+    gameover: '' +
+        '<div id="gameover-view" class="view">' +
+            '<h2>Game Over!</h2>' +
+            '<h3 id="winner-announcement"></h3>' +
+            '<div id="final-scores" class="resolution-list"></div>' +
+            '<button onclick="playAgain()">Play Again</button>' +
+        '</div>'
+};
+
+document.getElementById('main-content').innerHTML =
+    views.login + views.waiting + views.bidding + views.resolution + views.gameover;
 
 function setView(viewName) {
-    document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+    var els = document.querySelectorAll('.view');
+    for (var i = 0; i < els.length; i++) els[i].classList.remove('active');
     document.getElementById(viewName + '-view').classList.add('active');
     currentView = viewName;
 }
 
-// Actions
+// ─── Actions ─────────────────────────────────────────────────────────
+
 function joinGame() {
-    const name = document.getElementById('player-name').value;
-    if (name) {
-        socket.emit('join', name);
-    }
+    var name = document.getElementById('player-name').value;
+    if (name) socket.emit('join', name);
 }
 
-function addBot() {
-    socket.emit('add_bot');
-}
-
-function removeBot() {
-    socket.emit('remove_bot');
-}
-
-function startGame() {
-    socket.emit('start_game');
-}
+function addBot() { socket.emit('add_bot'); }
+function removeBot() { socket.emit('remove_bot'); }
+function startGame() { socket.emit('start_game'); }
 
 function submitBid() {
-    const bid = document.getElementById('bid-input').value;
+    var bid = document.getElementById('bid-input').value;
     if (bid !== '') {
         socket.emit('submit_bid', bid);
         document.getElementById('submit-bid-btn').disabled = true;
         document.getElementById('bidding-status').innerText = 'Waiting for other players...';
+        Sound.bid();
     }
 }
 
-function nextRound() {
-    socket.emit('next_round');
-}
+function nextRound() { socket.emit('next_round'); }
+function playAgain() { socket.emit('play_again'); }
 
-function playAgain() {
-    socket.emit('play_again');
-}
+// ─── Socket Events ───────────────────────────────────────────────────
 
-// Socket Events
-socket.on('connect', () => {
+socket.on('connect', function() {
     myId = socket.id;
 });
 
-socket.on('error', (msg) => {
+socket.on('error', function(msg) {
     alert(msg);
 });
 
-socket.on('state', (state) => {
-    // Update player status footer
-    const me = state.players.find(p => p.id === myId);
-    if (me) {
-        document.getElementById('player-status').innerHTML =
-            'Captain ' + escapeHtml(me.name) + ' | Stock: <strong>' + me.stock + ' 🍌</strong>';
-
-        // Hide login if joined
-        if (currentView === 'login') {
-            setView('waiting');
-        }
+socket.on('state', function(state) {
+    // Build player index map
+    playerIndexMap = {};
+    for (var i = 0; i < state.players.length; i++) {
+        playerIndexMap[state.players[i].id] = i;
     }
 
+    var me = null;
+    for (var i = 0; i < state.players.length; i++) {
+        if (state.players[i].id === myId) { me = state.players[i]; break; }
+    }
+
+    if (me) {
+        var statusEl = document.getElementById('player-status');
+        if (statusEl) {
+            statusEl.innerHTML = 'Captain ' + escapeHtml(me.name) +
+                ' &nbsp;|&nbsp; Stock: <strong>' + me.stock + ' 🍌</strong>';
+        }
+        if (currentView === 'login') setView('waiting');
+    }
+
+    // ── Waiting ──
     if (state.state === 'waiting' && currentView !== 'login') {
         setView('waiting');
-        const list = document.getElementById('waiting-players');
-        list.innerHTML = state.players.map(function(p) {
+        var list = document.getElementById('waiting-players');
+        var html = '';
+        for (var i = 0; i < state.players.length; i++) {
+            var p = state.players[i];
+            var c = playerColor(i);
             var tag = '';
             if (p.isBot) tag = '<span class="bot-tag">Bot</span>';
             if (p.id === myId) tag += ' <em>(You)</em>';
-            return '<li class="player-card"><strong>' + escapeHtml(p.name) + '</strong> ' + tag + '</li>';
-        }).join('');
+            html += '<li class="player-card" style="border-left:4px solid ' + c + ';">' +
+                '<div class="player-name" style="color:' + c + ';">' + escapeHtml(p.name) + '</div>' +
+                '<div>' + tag + '</div></li>';
+        }
+        list.innerHTML = html;
         document.getElementById('start-btn').disabled = state.players.length < 2;
     }
+
+    // ── Bidding ──
     else if (state.state === 'bidding') {
+        var prevView = currentView;
         setView('bidding');
         document.getElementById('round-number').innerText = state.round;
         document.getElementById('auction-amount').innerText = state.auctionAmount;
 
-        const list = document.getElementById('bidding-players');
-        list.innerHTML = state.players.map(function(p) {
+        var list = document.getElementById('bidding-players');
+        var html = '';
+        for (var i = 0; i < state.players.length; i++) {
+            var p = state.players[i];
+            var c = playerColor(i);
             var tag = '';
             if (p.isBot) tag = '<span class="bot-tag">Bot</span>';
             var status = p.hasBid ? 'Bid Placed' : 'Thinking...';
-            return '<li class="player-card ' + (p.hasBid ? 'ready' : '') + '">' +
-                '<strong>' + escapeHtml(p.name) + '</strong> ' + tag + '<br>' + status + '</li>';
-        }).join('');
+            var cls = p.hasBid ? 'ready' : '';
+            html += '<li class="player-card ' + cls + '" style="border-left:4px solid ' + c + ';">' +
+                '<div class="player-name" style="color:' + c + ';">' + escapeHtml(p.name) + '</div>' +
+                '<div>' + tag + '</div>' +
+                '<div class="player-stock">' + status + '</div></li>';
+        }
+        list.innerHTML = html;
 
         if (!me || !me.hasBid) {
             document.getElementById('submit-bid-btn').disabled = false;
             document.getElementById('bidding-status').innerText = '';
-            if (currentView !== 'bidding') {
+            if (prevView !== 'bidding') {
                 document.getElementById('bid-input').value = '';
             }
         }
     }
+
+    // ── Resolution ──
     else if (state.state === 'resolution') {
         setView('resolution');
         document.getElementById('res-auction-amount').innerText = state.auctionAmount;
 
-        var detailsHtml = '';
-        var sorted = state.players.slice().sort(function(a,b) { return b.bid - a.bid; });
+        // Determine if there was a clear winner this round
+        var hadWinner = false;
+        for (var i = 0; i < state.players.length; i++) {
+            if (state.players[i].winnings > 0) { hadWinner = true; break; }
+        }
+        var hadBankrupt = false;
+        for (var i = 0; i < state.players.length; i++) {
+            if (state.players[i].bankrupt) { hadBankrupt = true; break; }
+        }
+
+        // Play sounds
+        if (hadBankrupt) Sound.bankrupt();
+        else if (hadWinner) Sound.win();
+
+        var sorted = state.players.slice().sort(function(a, b) { return b.bid - a.bid; });
+        var html = '';
         for (var i = 0; i < sorted.length; i++) {
             var p = sorted[i];
-            var clz = 'resolution-card';
-            if (p.winnings > 0) clz += ' winner';
-            if (p.bankrupt) clz += ' bankrupt';
-            detailsHtml += '<div class="' + clz + '">';
-            detailsHtml += '<strong>' + escapeHtml(p.name) + '</strong>';
-            if (p.isBot) detailsHtml += ' <span class="bot-tag">Bot</span>';
-            detailsHtml += ' bid ' + p.bid + '.<br>';
+            var c = playerColor(state.players.indexOf(p));
+            var cls = 'resolution-row';
+            var detailText = '';
             if (p.bankrupt) {
-                detailsHtml += '<em>Went bankrupt trying to pay bonuses! Lost all stock.</em>';
+                cls += ' bankrupt';
+                detailText = '<em style="color:' + var_danger + ';">Bankrupt!</em>';
             } else {
-                if (p.winnings > 0) detailsHtml += 'Won ' + p.winnings + ' 🍌.<br>';
-                if (p.bonusPaid > 0) detailsHtml += 'Paid ' + p.bonusPaid + ' 🍌 in bonuses.<br>';
-                if (p.bonusReceived > 0) detailsHtml += 'Received ' + p.bonusReceived + ' 🍌 as a bonus.<br>';
-                detailsHtml += 'New Stock: ' + p.stock + ' 🍌';
+                if (p.winnings > 0) {
+                    cls += ' winner';
+                    detailText = 'Won <strong>+' + p.winnings + '</strong> 🍌';
+                }
+                if (p.bonusPaid > 0) detailText += '<br>Paid <strong>-' + p.bonusPaid + '</strong> 🍌 bonus';
+                if (p.bonusReceived > 0) detailText += '<br>Received <strong>+' + p.bonusReceived + '</strong> 🍌 bonus';
+                if (!p.winnings && !p.bonusPaid && !p.bonusReceived) detailText = 'Bid ' + p.bid;
+                detailText += '<br>Stock: <strong>' + p.stock + '</strong> 🍌';
             }
-            detailsHtml += '</div>';
+            var tag = p.isBot ? '<span class="bot-tag">Bot</span>' : '';
+            html += '<div class="' + cls + '" style="border-left-color:' + c + ';">' +
+                '<div class="res-player" style="color:' + c + ';">' + escapeHtml(p.name) + ' ' + tag + '</div>' +
+                '<div class="res-details">' + detailText + '</div></div>';
         }
-        document.getElementById('resolution-details').innerHTML = detailsHtml;
+        document.getElementById('resolution-details').innerHTML = html;
         document.getElementById('next-round-btn').style.display = 'inline-block';
     }
+
+    // ── Game Over ──
     else if (state.state === 'gameover') {
         setView('gameover');
+        Sound.gameover();
+
         var maxStock = 0;
         for (var i = 0; i < state.players.length; i++) {
             if (state.players[i].stock > maxStock) maxStock = state.players[i].stock;
         }
-        var winners = state.players.filter(function(p) { return p.stock === maxStock; });
+        var winners = [];
+        for (var i = 0; i < state.players.length; i++) {
+            if (state.players[i].stock === maxStock) winners.push(state.players[i]);
+        }
 
         document.getElementById('winner-announcement').innerText =
-            'Winner(s): ' + winners.map(function(w) { return escapeHtml(w.name); }).join(', ') + ' with ' + maxStock + ' 🍌!';
+            'Winner(s): ' + winners.map(function(w) { return escapeHtml(w.name); }).join(', ') +
+            ' with ' + maxStock + ' 🍌!';
 
-        var scoresHtml = '';
-        var sortedScores = state.players.slice().sort(function(a,b) { return b.stock - a.stock; });
-        for (var i = 0; i < sortedScores.length; i++) {
-            var p = sortedScores[i];
-            var wCls = (winners.indexOf(p) !== -1) ? ' winner' : '';
-            scoresHtml += '<div class="resolution-card' + wCls + '">' +
-                '<strong>' + escapeHtml(p.name) + '</strong>' +
-                (p.isBot ? ' <span class="bot-tag">Bot</span>' : '') + ': ' + p.stock + ' 🍌</div>';
+        var sorted = state.players.slice().sort(function(a, b) { return b.stock - a.stock; });
+        var html = '';
+        for (var i = 0; i < sorted.length; i++) {
+            var p = sorted[i];
+            var c = playerColor(state.players.indexOf(p));
+            var isWinner = false;
+            for (var j = 0; j < winners.length; j++) {
+                if (winners[j].id === p.id) { isWinner = true; break; }
+            }
+            var cls = isWinner ? 'resolution-row winner' : 'resolution-row';
+            var tag = p.isBot ? '<span class="bot-tag">Bot</span>' : '';
+            html += '<div class="' + cls + '" style="border-left-color:' + c + ';">' +
+                '<div class="res-player" style="color:' + c + ';">' + escapeHtml(p.name) + ' ' + tag + '</div>' +
+                '<div class="res-details"><strong>' + p.stock + '</strong> 🍌</div></div>';
         }
-        document.getElementById('final-scores').innerHTML = scoresHtml;
+        document.getElementById('final-scores').innerHTML = html;
     }
 });
+
+// ─── Lazy var for bankrupt color in resolution text ─────────────────
+
+var var_danger = '#e74c3c';

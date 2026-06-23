@@ -9,9 +9,17 @@
     <script src="client.js" defer></script>
 </head>
 <body>
+    <div class="ocean">
+        <div class="wave wave-1"></div>
+        <div class="wave wave-2"></div>
+        <div class="wave wave-3"></div>
+    </div>
     <div id="app">
         <header>
-            <h1>🍌 Puerto Banana 🍌</h1>
+            <h1>Puerto Banana</h1>
+            <div class="header-controls">
+                <button id="sound-toggle" class="sound-btn" onclick="Sound.toggle()" title="Toggle sound">&#9835;</button>
+            </div>
         </header>
 
         <main id="main-content">
