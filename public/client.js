@@ -342,7 +342,21 @@ socket.on('state', function(state) {
                 '<div class="res-details">' + dt + '</div></div>';
         }
         document.getElementById('resolution-details').innerHTML = html;
-        document.getElementById('next-round-btn').style.display = 'inline-block';
+        // Next round button with ready state
+        var nrBtn = document.getElementById('next-round-btn');
+        if (nrBtn) {
+            var readyCount = state.nextReady ? state.nextReady.length : 0;
+            var humanCount = state.players.filter(function(p) { return !p.isBot && p.connected !== false; }).length;
+            var iAmReady = state.nextReady && state.nextReady.indexOf(myId) !== -1;
+            if (iAmReady) {
+                nrBtn.disabled = true;
+                nrBtn.textContent = 'Waiting for others... (' + readyCount + '/' + humanCount + ')';
+            } else {
+                nrBtn.disabled = false;
+                nrBtn.textContent = 'Next Round';
+            }
+            nrBtn.style.display = 'inline-block';
+        }
     }
 
     // Game Over
@@ -367,5 +381,19 @@ socket.on('state', function(state) {
                 '<div class="res-details"><strong>' + p.stock + '</strong> 🍌</div></div>';
         }
         document.getElementById('final-scores').innerHTML = html;
+        // Play again button
+        var paBtn = document.querySelector('#gameover-view button');
+        if (paBtn) {
+            var readyCount = state.nextReady ? state.nextReady.length : 0;
+            var humanCount = state.players.filter(function(p) { return !p.isBot && p.connected !== false; }).length;
+            var iAmReady = state.nextReady && state.nextReady.indexOf(myId) !== -1;
+            if (iAmReady) {
+                paBtn.disabled = true;
+                paBtn.textContent = 'Waiting for others... (' + readyCount + '/' + humanCount + ')';
+            } else {
+                paBtn.disabled = false;
+                paBtn.textContent = 'Play Again';
+            }
+        }
     }
 });

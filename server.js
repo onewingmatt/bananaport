@@ -41,7 +41,8 @@ function makeGame() {
         round: 1,
         botTimers: {},
         timer: null,
-        useTimer: false
+        useTimer: false,
+        nextReady: new Set()
     };
 }
 
@@ -51,6 +52,7 @@ function getPublicGameState(game) {
         auctionAmount: game.auctionAmount,
         round: game.round,
         useTimer: game.useTimer,
+        nextReady: [...game.nextReady],
         players: game.players.map(p => ({
             id: p.id,
             name: p.name,
@@ -396,16 +398,26 @@ io.on('connection', (socket) => {
         });
     });
 
+    function allHumansReady(game) {
+        const humans = game.players.filter(p => !p.isBot && p.connected !== false);
+        return humans.length > 0 && humans.every(p => game.nextReady.has(p.id));
+    }
+
     socket.on('next_round', () => {
         withGame(socket, (game, roomCode) => {
             if (game.state === 'resolution') {
-                game.state = 'bidding';
-                game.round++;
-                game.auctionAmount = Math.max(...game.players.map(p => p.stock));
-                game.players.forEach(p => { p.bid = null; });
+                game.nextReady.add(socket.id);
                 emitState(roomCode);
-                triggerBotBids(game, roomCode);
-                startBiddingTimer(game, roomCode);
+                if (allHumansReady(game)) {
+                    game.nextReady.clear();
+                    game.state = 'bidding';
+                    game.round++;
+                    game.auctionAmount = Math.max(...game.players.map(p => p.stock));
+                    game.players.forEach(p => { p.bid = null; });
+                    emitState(roomCode);
+                    triggerBotBids(game, roomCode);
+                    startBiddingTimer(game, roomCode);
+                }
             }
         });
     });
@@ -413,13 +425,18 @@ io.on('connection', (socket) => {
     socket.on('play_again', () => {
         withGame(socket, (game, roomCode) => {
             if (game.state === 'gameover' || game.state === 'resolution') {
-                clearBiddingTimer(game);
-                game.state = 'waiting';
-                game.players.forEach(p => {
-                    p.stock = 10;
-                    p.bid = null;
-                });
+                game.nextReady.add(socket.id);
                 emitState(roomCode);
+                if (allHumansReady(game)) {
+                    clearBiddingTimer(game);
+                    game.nextReady.clear();
+                    game.state = 'waiting';
+                    game.players.forEach(p => {
+                        p.stock = 10;
+                        p.bid = null;
+                    });
+                    emitState(roomCode);
+                }
             }
         });
     });
@@ -436,6 +453,7 @@ io.on('connection', (socket) => {
                     } else {
                         player.connected = false;
                         player._disconnectedAt = Date.now();
+                        game.nextReady.delete(socket.id);
                     }
                 }
                 // If no humans left, reset game
