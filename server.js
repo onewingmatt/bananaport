@@ -10,10 +10,97 @@ app.use(express.static('public'));
 
 let game = {
     state: 'waiting', // waiting, bidding, resolution, gameover
-    players: [], // { id, name, stock, bid, ready, bankrupt, winnings, bonusPaid, bonusReceived }
+    players: [], // { id, name, stock, bid, ready, bankrupt, winnings, bonusPaid, bonusReceived, isBot }
     auctionAmount: 10,
     round: 1
 };
+
+// ─── Bot System ────────────────────────────────────────────────────────────
+
+const BOT_NAMES = [
+    'Salty Steve', 'Barnacle Betty', 'Dock Duncan',
+    'Anchor Annie', 'Crabby Carl', 'Mermaid Mia',
+    'Skipper Sam', 'One-Eyed Jack'
+];
+
+// Bot personality archetypes — each returns a bid
+const BOT_ARCHETYPES = [
+    // Random — bids anywhere from 0 to auction+5
+    () => Math.max(0, Math.floor(Math.random() * (game.auctionAmount + 6))),
+    // Cautious — never bids more than half, often low
+    () => Math.floor(Math.random() * Math.max(1, game.auctionAmount / 2 + 1)),
+    // Aggressive — wants to win, bids high but not stupid
+    () => Math.min(game.auctionAmount + 3, Math.floor(game.auctionAmount * (0.6 + Math.random() * 0.6))),
+    // Tactical — bids around the auction amount
+    () => Math.max(1, Math.floor(game.auctionAmount * (0.7 + Math.random() * 0.5))),
+    // Thrill-seeker — sometimes overbids wildly
+    () => {
+        if (Math.random() < 0.3) return Math.floor(Math.random() * (game.auctionAmount + 15));
+        return Math.floor(Math.random() * (game.auctionAmount + 1));
+    }
+];
+
+let botTimers = {};
+
+function addBot() {
+    if (game.state !== 'waiting') return null;
+    const botCount = game.players.filter(p => p.isBot).length;
+    const name = BOT_NAMES[botCount % BOT_NAMES.length];
+    const botId = `bot_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    game.players.push({
+        id: botId,
+        name: name,
+        stock: 10,
+        bid: null,
+        bankrupt: false,
+        winnings: 0,
+        bonusPaid: 0,
+        bonusReceived: 0,
+        isBot: true,
+        archetype: BOT_ARCHETYPES[botCount % BOT_ARCHETYPES.length]
+    });
+    io.emit('state', getPublicGameState());
+    return botId;
+}
+
+function removeBot() {
+    if (game.state !== 'waiting') return false;
+    const botIndex = game.players.findLastIndex(p => p.isBot);
+    if (botIndex === -1) return false;
+    game.players.splice(botIndex, 1);
+    io.emit('state', getPublicGameState());
+    return true;
+}
+
+function submitBotBid(bot) {
+    if (game.state !== 'bidding' || bot.bid !== null) return;
+    const bid = bot.archetype();
+    bot.bid = bid;
+    io.emit('state', getPublicGameState());
+    checkAllBids();
+}
+
+function triggerBotBids() {
+    // Clear any lingering timers
+    Object.values(botTimers).forEach(t => clearTimeout(t));
+    botTimers = {};
+
+    game.players.filter(p => p.isBot).forEach(bot => {
+        // Stagger bot bids 1-4 seconds apart so they don't all fire at once
+        const delay = 800 + Math.random() * 2800;
+        botTimers[bot.id] = setTimeout(() => {
+            submitBotBid(bot);
+            delete botTimers[bot.id];
+        }, delay);
+    });
+}
+
+function clearBotTimers() {
+    Object.values(botTimers).forEach(t => clearTimeout(t));
+    botTimers = {};
+}
+
+// ─── Game Logic ────────────────────────────────────────────────────────────
 
 function getPublicGameState() {
     return {
@@ -29,9 +116,18 @@ function getPublicGameState() {
             bankrupt: p.bankrupt,
             winnings: p.winnings,
             bonusPaid: p.bonusPaid,
-            bonusReceived: p.bonusReceived
+            bonusReceived: p.bonusReceived,
+            isBot: p.isBot || false
         }))
     };
+}
+
+function checkAllBids() {
+    if (game.players.every(p => p.bid !== null)) {
+        clearBotTimers();
+        resolveAuction();
+        io.emit('state', getPublicGameState());
+    }
 }
 
 function resolveAuction() {
@@ -114,13 +210,14 @@ function resolveAuction() {
     }
 }
 
+// ─── Socket Events ─────────────────────────────────────────────────────────
+
 io.on('connection', (socket) => {
     socket.on('join', (name) => {
         if (game.state !== 'waiting') {
             socket.emit('error', 'Game already in progress');
             return;
         }
-        // Check if name exists or id exists
         if (!game.players.find(p => p.id === socket.id)) {
             game.players.push({
                 id: socket.id,
@@ -130,10 +227,19 @@ io.on('connection', (socket) => {
                 bankrupt: false,
                 winnings: 0,
                 bonusPaid: 0,
-                bonusReceived: 0
+                bonusReceived: 0,
+                isBot: false
             });
         }
         io.emit('state', getPublicGameState());
+    });
+
+    socket.on('add_bot', () => {
+        addBot();
+    });
+
+    socket.on('remove_bot', () => {
+        removeBot();
     });
 
     socket.on('start_game', () => {
@@ -150,6 +256,7 @@ io.on('connection', (socket) => {
                 p.bonusReceived = 0;
             });
             io.emit('state', getPublicGameState());
+            triggerBotBids();
         }
     });
 
@@ -161,12 +268,7 @@ io.on('connection', (socket) => {
                 if (isNaN(player.bid) || player.bid < 0) player.bid = 0;
 
                 io.emit('state', getPublicGameState());
-
-                // Check if all players have bid
-                if (game.players.every(p => p.bid !== null)) {
-                    resolveAuction();
-                    io.emit('state', getPublicGameState());
-                }
+                checkAllBids();
             }
         }
     });
@@ -180,6 +282,7 @@ io.on('connection', (socket) => {
                 p.bid = null;
             });
             io.emit('state', getPublicGameState());
+            triggerBotBids();
         }
     });
 
@@ -197,11 +300,14 @@ io.on('connection', (socket) => {
     socket.on('disconnect', () => {
         game.players = game.players.filter(p => p.id !== socket.id);
         if (game.players.length < 2 && game.state !== 'waiting') {
-            game.state = 'waiting'; // Reset game if not enough players
+            game.state = 'waiting';
+            clearBotTimers();
         }
         io.emit('state', getPublicGameState());
     });
 });
+
+// ─── Startup ────────────────────────────────────────────────────────────────
 
 const PORT = process.env.PORT || 8080;
 server.listen(PORT, () => {

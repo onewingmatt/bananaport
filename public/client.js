@@ -24,6 +24,10 @@ const views = {
         <div id="waiting-view" class="view">
             <h2>Waiting for Players...</h2>
             <ul id="waiting-players" class="player-list"></ul>
+            <div class="bot-controls">
+                <button onclick="addBot()" class="btn-small">+ Add Bot</button>
+                <button onclick="removeBot()" class="btn-small btn-secondary">- Remove Bot</button>
+            </div>
             <button id="start-btn" onclick="startGame()" disabled>Start Game</button>
         </div>
     `,
@@ -69,7 +73,7 @@ document.getElementById('main-content').innerHTML = Object.values(views).join(''
 
 function setView(viewName) {
     document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
-    document.getElementById(`${viewName}-view`).classList.add('active');
+    document.getElementById(viewName + '-view').classList.add('active');
     currentView = viewName;
 }
 
@@ -79,6 +83,14 @@ function joinGame() {
     if (name) {
         socket.emit('join', name);
     }
+}
+
+function addBot() {
+    socket.emit('add_bot');
+}
+
+function removeBot() {
+    socket.emit('remove_bot');
 }
 
 function startGame() {
@@ -115,9 +127,8 @@ socket.on('state', (state) => {
     // Update player status footer
     const me = state.players.find(p => p.id === myId);
     if (me) {
-        document.getElementById('player-status').innerHTML = `
-            Captain ${escapeHtml(me.name)} | Stock: <strong>${me.stock} 🍌</strong>
-        `;
+        document.getElementById('player-status').innerHTML =
+            'Captain ' + escapeHtml(me.name) + ' | Stock: <strong>' + me.stock + ' 🍌</strong>';
 
         // Hide login if joined
         if (currentView === 'login') {
@@ -128,12 +139,12 @@ socket.on('state', (state) => {
     if (state.state === 'waiting' && currentView !== 'login') {
         setView('waiting');
         const list = document.getElementById('waiting-players');
-        list.innerHTML = state.players.map(p => `
-            <li class="player-card">
-                <strong>${escapeHtml(p.name)}</strong><br>
-                ${p.id === myId ? '(You)' : ''}
-            </li>
-        `).join('');
+        list.innerHTML = state.players.map(function(p) {
+            var tag = '';
+            if (p.isBot) tag = '<span class="bot-tag">Bot</span>';
+            if (p.id === myId) tag += ' <em>(You)</em>';
+            return '<li class="player-card"><strong>' + escapeHtml(p.name) + '</strong> ' + tag + '</li>';
+        }).join('');
         document.getElementById('start-btn').disabled = state.players.length < 2;
     }
     else if (state.state === 'bidding') {
@@ -142,17 +153,17 @@ socket.on('state', (state) => {
         document.getElementById('auction-amount').innerText = state.auctionAmount;
 
         const list = document.getElementById('bidding-players');
-        list.innerHTML = state.players.map(p => `
-            <li class="player-card ${p.hasBid ? 'ready' : ''}">
-                <strong>${escapeHtml(p.name)}</strong><br>
-                ${p.hasBid ? 'Bid Placed' : 'Thinking...'}
-            </li>
-        `).join('');
+        list.innerHTML = state.players.map(function(p) {
+            var tag = '';
+            if (p.isBot) tag = '<span class="bot-tag">Bot</span>';
+            var status = p.hasBid ? 'Bid Placed' : 'Thinking...';
+            return '<li class="player-card ' + (p.hasBid ? 'ready' : '') + '">' +
+                '<strong>' + escapeHtml(p.name) + '</strong> ' + tag + '<br>' + status + '</li>';
+        }).join('');
 
         if (!me || !me.hasBid) {
             document.getElementById('submit-bid-btn').disabled = false;
             document.getElementById('bidding-status').innerText = '';
-            // Only clear input if we just entered the bidding state
             if (currentView !== 'bidding') {
                 document.getElementById('bid-input').value = '';
             }
@@ -162,42 +173,50 @@ socket.on('state', (state) => {
         setView('resolution');
         document.getElementById('res-auction-amount').innerText = state.auctionAmount;
 
-        const details = document.getElementById('resolution-details');
-        details.innerHTML = state.players.sort((a,b) => b.bid - a.bid).map(p => {
-            let clz = 'resolution-card';
+        var detailsHtml = '';
+        var sorted = state.players.slice().sort(function(a,b) { return b.bid - a.bid; });
+        for (var i = 0; i < sorted.length; i++) {
+            var p = sorted[i];
+            var clz = 'resolution-card';
             if (p.winnings > 0) clz += ' winner';
             if (p.bankrupt) clz += ' bankrupt';
-
-            let html = `<div class="${clz}">
-                <strong>${escapeHtml(p.name)}</strong> bid ${p.bid}.<br>`;
-
+            detailsHtml += '<div class="' + clz + '">';
+            detailsHtml += '<strong>' + escapeHtml(p.name) + '</strong>';
+            if (p.isBot) detailsHtml += ' <span class="bot-tag">Bot</span>';
+            detailsHtml += ' bid ' + p.bid + '.<br>';
             if (p.bankrupt) {
-                html += `<em>Went bankrupt trying to pay bonuses! Lost all stock.</em>`;
+                detailsHtml += '<em>Went bankrupt trying to pay bonuses! Lost all stock.</em>';
             } else {
-                if (p.winnings > 0) html += `Won ${p.winnings} 🍌.<br>`;
-                if (p.bonusPaid > 0) html += `Paid ${p.bonusPaid} 🍌 in bonuses.<br>`;
-                if (p.bonusReceived > 0) html += `Received ${p.bonusReceived} 🍌 as a bonus.<br>`;
-                html += `New Stock: ${p.stock} 🍌`;
+                if (p.winnings > 0) detailsHtml += 'Won ' + p.winnings + ' 🍌.<br>';
+                if (p.bonusPaid > 0) detailsHtml += 'Paid ' + p.bonusPaid + ' 🍌 in bonuses.<br>';
+                if (p.bonusReceived > 0) detailsHtml += 'Received ' + p.bonusReceived + ' 🍌 as a bonus.<br>';
+                detailsHtml += 'New Stock: ' + p.stock + ' 🍌';
             }
-            html += `</div>`;
-            return html;
-        }).join('');
-
-        // Only show next round to one player to prevent duplicate emits, or just allow anyone
+            detailsHtml += '</div>';
+        }
+        document.getElementById('resolution-details').innerHTML = detailsHtml;
         document.getElementById('next-round-btn').style.display = 'inline-block';
     }
     else if (state.state === 'gameover') {
         setView('gameover');
-        const maxStock = Math.max(...state.players.map(p => p.stock));
-        const winners = state.players.filter(p => p.stock === maxStock);
+        var maxStock = 0;
+        for (var i = 0; i < state.players.length; i++) {
+            if (state.players[i].stock > maxStock) maxStock = state.players[i].stock;
+        }
+        var winners = state.players.filter(function(p) { return p.stock === maxStock; });
 
         document.getElementById('winner-announcement').innerText =
-            `Winner(s): ${winners.map(w => escapeHtml(w.name)).join(', ')} with ${maxStock} 🍌!`;
+            'Winner(s): ' + winners.map(function(w) { return escapeHtml(w.name); }).join(', ') + ' with ' + maxStock + ' 🍌!';
 
-        document.getElementById('final-scores').innerHTML = state.players.sort((a,b) => b.stock - a.stock).map(p => `
-            <div class="resolution-card ${winners.includes(p) ? 'winner' : ''}">
-                <strong>${escapeHtml(p.name)}</strong>: ${p.stock} 🍌
-            </div>
-        `).join('');
+        var scoresHtml = '';
+        var sortedScores = state.players.slice().sort(function(a,b) { return b.stock - a.stock; });
+        for (var i = 0; i < sortedScores.length; i++) {
+            var p = sortedScores[i];
+            var wCls = (winners.indexOf(p) !== -1) ? ' winner' : '';
+            scoresHtml += '<div class="resolution-card' + wCls + '">' +
+                '<strong>' + escapeHtml(p.name) + '</strong>' +
+                (p.isBot ? ' <span class="bot-tag">Bot</span>' : '') + ': ' + p.stock + ' 🍌</div>';
+        }
+        document.getElementById('final-scores').innerHTML = scoresHtml;
     }
 });
