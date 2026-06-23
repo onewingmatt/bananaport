@@ -1,7 +1,7 @@
 
 // ─── Player Colors ───────────────────────────────────────────────────
 
-var PLAYER_COLORS = ['#f87171', '#34d399', '#60a5fa', '#fbbf24', '#c084fc', '#2dd4bf', '#fb923c', '#94a3b8'];
+var PLAYER_COLORS = ['#ef4444', '#10b981', '#3b82f6', '#f59e0b', '#8b5cf6', '#14b8a6', '#f97316', '#64748b'];
 
 function playerColor(index) {
     return PLAYER_COLORS[index % PLAYER_COLORS.length];
@@ -342,4 +342,4 @@ socket.on('state', function(state) {
 
 // ─── Lazy var for bankrupt color in resolution text ─────────────────
 
-var var_danger = '#f87171';
+var var_danger = '#f43f5e';
