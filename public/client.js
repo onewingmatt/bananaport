@@ -7,7 +7,7 @@ function playerColor(index) {
     return PLAYER_COLORS[index % PLAYER_COLORS.length];
 }
 
-// ─── Sound System (Web Audio, no files) ─────────────────────────────
+// ─── Sound System ────────────────────────────────────────────────────
 
 var Sound = {
     ctx: null,
@@ -20,9 +20,7 @@ var Sound = {
                 this.enabled = false;
             }
         }
-        if (this.ctx && this.ctx.state === 'suspended') {
-            this.ctx.resume();
-        }
+        if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume();
     },
     _play: function(freq, duration, type, vol) {
         if (!this.enabled) return;
@@ -39,9 +37,7 @@ var Sound = {
         osc.start();
         osc.stop(this.ctx.currentTime + duration);
     },
-    bid: function() {
-        this._play(880, 0.08, 'sine', 0.08);
-    },
+    bid: function() { this._play(880, 0.08, 'sine', 0.08); },
     win: function() {
         var self = this;
         self._play(523, 0.12, 'sine', 0.1);
@@ -56,8 +52,7 @@ var Sound = {
     },
     gameover: function() {
         var self = this;
-        var notes = [523, 659, 784, 1047];
-        notes.forEach(function(f, i) {
+        [523, 659, 784, 1047].forEach(function(f, i) {
             setTimeout(function() { self._play(f, 0.18, 'sine', 0.1); }, i * 140);
         });
     },
@@ -84,63 +79,78 @@ function escapeHtml(unsafe) {
 
 var socket = io();
 var myId = null;
-var currentView = 'login';
+var currentView = 'room';
 var playerIndexMap = {};
+var roomCode = null;
+var joined = false;
 
 // Views
-var views = {
-    login: '' +
-        '<div id="login-view" class="view active">' +
-            '<h2>Welcome to the Docks</h2>' +
-            '<p>Enter your Captain name to join the auction.</p>' +
-            '<input type="text" id="player-name" placeholder="Captain Banana">' +
-            '<br><button onclick="joinGame()">Join Game</button>' +
-        '</div>',
-    waiting: '' +
-        '<div id="waiting-view" class="view">' +
-            '<h2>Waiting for Crew...</h2>' +
-            '<ul id="waiting-players" class="player-list"></ul>' +
-            '<div class="bot-controls">' +
-                '<button onclick="addBot()" class="btn-small">+ Add Bot</button>' +
-                '<button onclick="removeBot()" class="btn-small btn-secondary">- Remove Bot</button>' +
-            '</div>' +
-            '<button id="start-btn" onclick="startGame()" disabled>Start Game</button>' +
-        '</div>',
-    bidding: '' +
-        '<div id="bidding-view" class="view">' +
-            '<div class="auction-board">' +
-                '<h3>Round <span id="round-number"></span></h3>' +
-                '<div class="amount"><span id="auction-amount"></span> 🍌</div>' +
-                '<div class="auction-label">Bananas on Auction</div>' +
-            '</div>' +
-            '<div id="bidding-area">' +
-                '<p>Enter your secret bid:</p>' +
-                '<input type="number" id="bid-input" min="0" placeholder="0">' +
-                '<br><button id="submit-bid-btn" onclick="submitBid()">Place Bid</button>' +
-            '</div>' +
-            '<p id="bidding-status"></p>' +
-            '<ul id="bidding-players" class="player-list"></ul>' +
-        '</div>',
-    resolution: '' +
-        '<div id="resolution-view" class="view">' +
-            '<h2>Auction Results</h2>' +
-            '<div class="auction-board" style="padding:12px 20px;width:auto;">' +
-                '<p style="margin:0">Auction was for: <strong><span id="res-auction-amount"></span> 🍌</strong></p>' +
-            '</div>' +
-            '<div id="resolution-details" class="resolution-list"></div>' +
-            '<button id="next-round-btn" onclick="nextRound()" style="display:none;">Next Round</button>' +
-        '</div>',
-    gameover: '' +
-        '<div id="gameover-view" class="view">' +
-            '<h2>Game Over!</h2>' +
-            '<h3 id="winner-announcement"></h3>' +
-            '<div id="final-scores" class="resolution-list"></div>' +
-            '<button onclick="playAgain()">Play Again</button>' +
-        '</div>'
-};
+var roomViewHTML = '' +
+    '<div id="room-view" class="view active">' +
+        '<h2>Puerto Banana</h2>' +
+        '<p style="color:var(--muted);margin-bottom:20px">Start a new game or join an existing one.</p>' +
+        '<button onclick="createRoom()" style="min-width:200px">Create New Game</button>' +
+        '<div style="margin:20px 0;color:var(--muted)">— or —</div>' +
+        '<input type="text" id="room-code-input" placeholder="Enter Room Code" style="width:160px;text-transform:uppercase" maxlength="5">' +
+        '<br><button onclick="joinRoom()" style="min-width:200px">Join Game</button>' +
+        '<p id="room-error" style="color:var(--danger);margin-top:12px;display:none"></p>' +
+    '</div>';
 
-document.getElementById('main-content').innerHTML =
-    views.login + views.waiting + views.bidding + views.resolution + views.gameover;
+var loginViewHTML = '' +
+    '<div id="login-view" class="view">' +
+        '<h2>Welcome to the Docks</h2>' +
+        '<p>Enter your Captain name to join <strong id="room-display-login"></strong>.</p>' +
+        '<input type="text" id="player-name" placeholder="Captain Banana">' +
+        '<br><button onclick="joinGame()">Join Game</button>' +
+    '</div>';
+
+var waitingViewHTML = '' +
+    '<div id="waiting-view" class="view">' +
+        '<h2>Waiting for Crew...</h2>' +
+        '<ul id="waiting-players" class="player-list"></ul>' +
+        '<div class="bot-controls">' +
+            '<button onclick="addBot()" class="btn-small">+ Add Bot</button>' +
+            '<button onclick="removeBot()" class="btn-small btn-secondary">- Remove Bot</button>' +
+        '</div>' +
+        '<button id="start-btn" onclick="startGame()" disabled>Start Game</button>' +
+    '</div>';
+
+var biddingViewHTML = '' +
+    '<div id="bidding-view" class="view">' +
+        '<div class="auction-board">' +
+            '<h3>Round <span id="round-number"></span></h3>' +
+            '<div class="amount"><span id="auction-amount"></span> 🍌</div>' +
+            '<div class="auction-label">Bananas on Auction</div>' +
+        '</div>' +
+        '<div id="bidding-area">' +
+            '<p>Enter your secret bid:</p>' +
+            '<input type="number" id="bid-input" min="0" placeholder="0">' +
+            '<br><button id="submit-bid-btn" onclick="submitBid()">Place Bid</button>' +
+        '</div>' +
+        '<p id="bidding-status"></p>' +
+        '<ul id="bidding-players" class="player-list"></ul>' +
+    '</div>';
+
+var resolutionViewHTML = '' +
+    '<div id="resolution-view" class="view">' +
+        '<h2>Auction Results</h2>' +
+        '<div class="auction-board" style="padding:12px 20px;width:auto">' +
+            '<p style="margin:0">Auction was for: <strong><span id="res-auction-amount"></span> 🍌</strong></p>' +
+        '</div>' +
+        '<div id="resolution-details" class="resolution-list"></div>' +
+        '<button id="next-round-btn" onclick="nextRound()" style="display:none">Next Round</button>' +
+    '</div>';
+
+var gameoverViewHTML = '' +
+    '<div id="gameover-view" class="view">' +
+        '<h2>Game Over!</h2>' +
+        '<h3 id="winner-announcement"></h3>' +
+        '<div id="final-scores" class="resolution-list"></div>' +
+        '<button onclick="playAgain()">Play Again</button>' +
+    '</div>';
+
+var mainEl = document.getElementById('main-content');
+mainEl.innerHTML = roomViewHTML + loginViewHTML + waitingViewHTML + biddingViewHTML + resolutionViewHTML + gameoverViewHTML;
 
 function setView(viewName) {
     var els = document.querySelectorAll('.view');
@@ -149,7 +159,48 @@ function setView(viewName) {
     currentView = viewName;
 }
 
+// ─── Room Management ─────────────────────────────────────────────────
+
+function getRoomFromURL() {
+    var m = window.location.search.match(/[?&]room=([A-Za-z0-9]+)/);
+    return m ? m[1].toUpperCase() : null;
+}
+
+function updateURL(room) {
+    var url = window.location.protocol + '//' + window.location.host + '?room=' + room;
+    window.history.replaceState({room: room}, '', url);
+    roomCode = room;
+    var display = document.getElementById('room-display');
+    if (display) display.textContent = room;
+    var loginDisplay = document.getElementById('room-display-login');
+    if (loginDisplay) loginDisplay.textContent = room;
+    var copyBtn = document.getElementById('copy-room-btn');
+    if (copyBtn) copyBtn.style.display = '';
+}
+
+function copyRoomLink() {
+    var url = window.location.href;
+    if (navigator.clipboard) {
+        navigator.clipboard.writeText(url).then(function() {
+            var btn = document.getElementById('copy-room-btn');
+            if (btn) btn.textContent = 'Copied!';
+            setTimeout(function() {
+                if (btn) btn.textContent = 'Copy Link';
+            }, 2000);
+        });
+    }
+}
+
 // ─── Actions ─────────────────────────────────────────────────────────
+
+function createRoom() {
+    socket.emit('create_room');
+}
+
+function joinRoom() {
+    var code = document.getElementById('room-code-input').value.trim().toUpperCase();
+    if (code) socket.emit('join_room', code);
+}
 
 function joinGame() {
     var name = document.getElementById('player-name').value;
@@ -177,14 +228,36 @@ function playAgain() { socket.emit('play_again'); }
 
 socket.on('connect', function() {
     myId = socket.id;
+    var urlRoom = getRoomFromURL();
+    if (urlRoom) {
+        socket.emit('join_room', urlRoom);
+    }
+});
+
+socket.on('room_created', function(code) {
+    updateURL(code);
+    setView('login');
+});
+
+socket.on('room_joined', function(code) {
+    updateURL(code);
+    setView('login');
+    joined = true;
 });
 
 socket.on('error', function(msg) {
-    alert(msg);
+    if (currentView === 'room') {
+        var errEl = document.getElementById('room-error');
+        if (errEl) {
+            errEl.textContent = msg;
+            errEl.style.display = 'block';
+        }
+    } else {
+        alert(msg);
+    }
 });
 
 socket.on('state', function(state) {
-    // Build player index map
     playerIndexMap = {};
     for (var i = 0; i < state.players.length; i++) {
         playerIndexMap[state.players[i].id] = i;
@@ -195,17 +268,38 @@ socket.on('state', function(state) {
         if (state.players[i].id === myId) { me = state.players[i]; break; }
     }
 
+    // If we haven't joined yet and we have a room, show login
+    if (!joined && roomCode && currentView === 'room') {
+        setView('login');
+    }
+
+    if (me && currentView === 'login') {
+        setView('waiting');
+    }
+
+    // Update room display in header
+    var roomDisplay = document.getElementById('room-display');
+    if (!roomDisplay && roomCode) {
+        var headerEl = document.querySelector('header');
+        if (headerEl) {
+            var span = document.createElement('span');
+            span.id = 'room-display';
+            span.style.cssText = 'font-size:0.5em;color:var(--ocean);background:rgba(14,165,233,0.1);padding:2px 10px;border-radius:8px;margin-left:10px;vertical-align:middle;letter-spacing:1px';
+            span.textContent = roomCode;
+            headerEl.querySelector('h1').appendChild(span);
+        }
+    }
+
     if (me) {
         var statusEl = document.getElementById('player-status');
         if (statusEl) {
             statusEl.innerHTML = 'Captain ' + escapeHtml(me.name) +
                 ' &nbsp;|&nbsp; Stock: <strong>' + me.stock + ' 🍌</strong>';
         }
-        if (currentView === 'login') setView('waiting');
     }
 
     // ── Waiting ──
-    if (state.state === 'waiting' && currentView !== 'login') {
+    if (state.state === 'waiting' && currentView !== 'login' && currentView !== 'room') {
         setView('waiting');
         var list = document.getElementById('waiting-players');
         var html = '';
@@ -260,7 +354,6 @@ socket.on('state', function(state) {
         setView('resolution');
         document.getElementById('res-auction-amount').innerText = state.auctionAmount;
 
-        // Determine if there was a clear winner this round
         var hadWinner = false;
         for (var i = 0; i < state.players.length; i++) {
             if (state.players[i].winnings > 0) { hadWinner = true; break; }
@@ -270,7 +363,6 @@ socket.on('state', function(state) {
             if (state.players[i].bankrupt) { hadBankrupt = true; break; }
         }
 
-        // Play sounds
         if (hadBankrupt) Sound.bankrupt();
         else if (hadWinner) Sound.win();
 
@@ -278,12 +370,13 @@ socket.on('state', function(state) {
         var html = '';
         for (var i = 0; i < sorted.length; i++) {
             var p = sorted[i];
-            var c = playerColor(state.players.indexOf(p));
+            var idx = state.players.indexOf(p);
+            var c = playerColor(idx);
             var cls = 'resolution-row';
             var detailText = '';
             if (p.bankrupt) {
                 cls += ' bankrupt';
-                detailText = '<em style="color:' + var_danger + ';">Bankrupt!</em>';
+                detailText = '<em style="color:#f43f5e">Bankrupt!</em>';
             } else {
                 if (p.winnings > 0) {
                     cls += ' winner';
@@ -325,7 +418,8 @@ socket.on('state', function(state) {
         var html = '';
         for (var i = 0; i < sorted.length; i++) {
             var p = sorted[i];
-            var c = playerColor(state.players.indexOf(p));
+            var idx = state.players.indexOf(p);
+            var c = playerColor(idx);
             var isWinner = false;
             for (var j = 0; j < winners.length; j++) {
                 if (winners[j].id === p.id) { isWinner = true; break; }
@@ -339,7 +433,3 @@ socket.on('state', function(state) {
         document.getElementById('final-scores').innerHTML = html;
     }
 });
-
-// ─── Lazy var for bankrupt color in resolution text ─────────────────
-
-var var_danger = '#f43f5e';

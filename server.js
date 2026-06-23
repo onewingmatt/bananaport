@@ -8,14 +8,10 @@ const io = new Server(server);
 
 app.use(express.static('public'));
 
-let game = {
-    state: 'waiting', // waiting, bidding, resolution, gameover
-    players: [], // { id, name, stock, bid, ready, bankrupt, winnings, bonusPaid, bonusReceived, isBot }
-    auctionAmount: 10,
-    round: 1
-};
+// ─── Multi-Game Room System ──────────────────────────────────────────────
 
-// ─── Bot System ────────────────────────────────────────────────────────────
+const games = new Map();
+const socketRooms = new Map(); // socketId → roomCode
 
 const BOT_NAMES = [
     'Salty Steve', 'Barnacle Betty', 'Dock Duncan',
@@ -23,88 +19,34 @@ const BOT_NAMES = [
     'Skipper Sam', 'One-Eyed Jack'
 ];
 
-// Bot personality archetypes — each returns a bid
 const BOT_ARCHETYPES = [
-    // Random — bids anywhere from 0 to auction+5
-    () => Math.max(0, Math.floor(Math.random() * (game.auctionAmount + 6))),
-    // Cautious — never bids more than half, often low
-    () => Math.floor(Math.random() * Math.max(1, game.auctionAmount / 2 + 1)),
-    // Aggressive — wants to win, bids high but not stupid
-    () => Math.min(game.auctionAmount + 3, Math.floor(game.auctionAmount * (0.6 + Math.random() * 0.6))),
-    // Tactical — bids around the auction amount
-    () => Math.max(1, Math.floor(game.auctionAmount * (0.7 + Math.random() * 0.5))),
-    // Thrill-seeker — sometimes overbids wildly
+    () => Math.max(0, Math.floor(Math.random() * (gameAuctionAmount() + 6))),
+    () => Math.floor(Math.random() * Math.max(1, gameAuctionAmount() / 2 + 1)),
+    () => Math.min(gameAuctionAmount() + 3, Math.floor(gameAuctionAmount() * (0.6 + Math.random() * 0.6))),
+    () => Math.max(1, Math.floor(gameAuctionAmount() * (0.7 + Math.random() * 0.5))),
     () => {
-        if (Math.random() < 0.3) return Math.floor(Math.random() * (game.auctionAmount + 15));
-        return Math.floor(Math.random() * (game.auctionAmount + 1));
+        if (Math.random() < 0.3) return Math.floor(Math.random() * (gameAuctionAmount() + 15));
+        return Math.floor(Math.random() * (gameAuctionAmount() + 1));
     }
 ];
 
-let botTimers = {};
+let currentArchetypeAuctionAmount = 0;
 
-function addBot() {
-    if (game.state !== 'waiting') return null;
-    const usedNames = new Set(game.players.map(p => p.name));
-    const available = BOT_NAMES.filter(n => !usedNames.has(n));
-    const name = available.length > 0 ? available[Math.floor(Math.random() * available.length)] : 'Pirate Bot';
-    const botId = `bot_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
-    const archetype = BOT_ARCHETYPES[Math.floor(Math.random() * BOT_ARCHETYPES.length)];
-    game.players.push({
-        id: botId,
-        name: name,
-        stock: 10,
-        bid: null,
-        bankrupt: false,
-        winnings: 0,
-        bonusPaid: 0,
-        bonusReceived: 0,
-        isBot: true,
-        archetype: archetype
-    });
-    io.emit('state', getPublicGameState());
-    return botId;
+function gameAuctionAmount() {
+    return currentArchetypeAuctionAmount;
 }
 
-function removeBot() {
-    if (game.state !== 'waiting') return false;
-    const botIndex = game.players.findLastIndex(p => p.isBot);
-    if (botIndex === -1) return false;
-    game.players.splice(botIndex, 1);
-    io.emit('state', getPublicGameState());
-    return true;
+function makeGame() {
+    return {
+        state: 'waiting',
+        players: [],
+        auctionAmount: 10,
+        round: 1,
+        botTimers: {}
+    };
 }
 
-function submitBotBid(bot) {
-    if (game.state !== 'bidding' || bot.bid !== null) return;
-    const bid = bot.archetype();
-    bot.bid = bid;
-    io.emit('state', getPublicGameState());
-    checkAllBids();
-}
-
-function triggerBotBids() {
-    // Clear any lingering timers
-    Object.values(botTimers).forEach(t => clearTimeout(t));
-    botTimers = {};
-
-    game.players.filter(p => p.isBot).forEach(bot => {
-        // Stagger bot bids 1-4 seconds apart so they don't all fire at once
-        const delay = 800 + Math.random() * 2800;
-        botTimers[bot.id] = setTimeout(() => {
-            submitBotBid(bot);
-            delete botTimers[bot.id];
-        }, delay);
-    });
-}
-
-function clearBotTimers() {
-    Object.values(botTimers).forEach(t => clearTimeout(t));
-    botTimers = {};
-}
-
-// ─── Game Logic ────────────────────────────────────────────────────────────
-
-function getPublicGameState() {
+function getPublicGameState(game) {
     return {
         state: game.state,
         auctionAmount: game.auctionAmount,
@@ -124,16 +66,92 @@ function getPublicGameState() {
     };
 }
 
-function checkAllBids() {
+function emitState(roomCode) {
+    const game = games.get(roomCode);
+    if (game) io.to(roomCode).emit('state', getPublicGameState(game));
+}
+
+function roomCode() {
+    let code;
+    do {
+        code = '';
+        const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+        for (let i = 0; i < 5; i++) code += chars[Math.floor(Math.random() * chars.length)];
+    } while (games.has(code));
+    return code;
+}
+
+// ─── Bot System ────────────────────────────────────────────────────────────
+
+function addBot(game, roomCode) {
+    if (game.state !== 'waiting') return null;
+    const usedNames = new Set(game.players.map(p => p.name));
+    const available = BOT_NAMES.filter(n => !usedNames.has(n));
+    const name = available.length > 0 ? available[Math.floor(Math.random() * available.length)] : 'Pirate Bot';
+    const botId = `bot_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const archetype = BOT_ARCHETYPES[Math.floor(Math.random() * BOT_ARCHETYPES.length)];
+    game.players.push({
+        id: botId,
+        name: name,
+        stock: 10,
+        bid: null,
+        bankrupt: false,
+        winnings: 0,
+        bonusPaid: 0,
+        bonusReceived: 0,
+        isBot: true,
+        archetype: archetype
+    });
+    emitState(roomCode);
+    return botId;
+}
+
+function removeBot(game, roomCode) {
+    if (game.state !== 'waiting') return false;
+    const botIndex = game.players.findLastIndex(p => p.isBot);
+    if (botIndex === -1) return false;
+    game.players.splice(botIndex, 1);
+    emitState(roomCode);
+    return true;
+}
+
+function submitBotBid(game, roomCode, bot) {
+    if (game.state !== 'bidding' || bot.bid !== null) return;
+    currentArchetypeAuctionAmount = game.auctionAmount;
+    const bid = bot.archetype();
+    bot.bid = bid;
+    emitState(roomCode);
+    checkAllBids(game, roomCode);
+}
+
+function triggerBotBids(game, roomCode) {
+    Object.values(game.botTimers).forEach(t => clearTimeout(t));
+    game.botTimers = {};
+    game.players.filter(p => p.isBot).forEach(bot => {
+        const delay = 800 + Math.random() * 2800;
+        game.botTimers[bot.id] = setTimeout(() => {
+            submitBotBid(game, roomCode, bot);
+            delete game.botTimers[bot.id];
+        }, delay);
+    });
+}
+
+function clearBotTimers(game) {
+    Object.values(game.botTimers).forEach(t => clearTimeout(t));
+    game.botTimers = {};
+}
+
+// ─── Game Logic ────────────────────────────────────────────────────────────
+
+function checkAllBids(game, roomCode) {
     if (game.players.every(p => p.bid !== null)) {
-        clearBotTimers();
-        resolveAuction();
-        io.emit('state', getPublicGameState());
+        clearBotTimers(game);
+        resolveAuction(game);
+        emitState(roomCode);
     }
 }
 
-function resolveAuction() {
-    // Reset round results
+function resolveAuction(game) {
     game.players.forEach(p => {
         p.bankrupt = false;
         p.winnings = 0;
@@ -159,7 +177,6 @@ function resolveAuction() {
         let highestBidders = bids.filter(b => b.bid === highestBid).map(b => b.id);
 
         if (highestBidders.length > 1) {
-            // Tie for highest, split and no bonus
             let splitAmount = Math.floor(game.auctionAmount / highestBidders.length);
             for (let id of highestBidders) {
                 let p = game.players.find(p => p.id === id);
@@ -170,19 +187,15 @@ function resolveAuction() {
         } else {
             let winnerId = highestBidders[0];
             let winner = game.players.find(p => p.id === winnerId);
-
             let secondHighestBid = uniqueBids.length > 1 ? uniqueBids[1] : 0;
             let bonus = highestBid - secondHighestBid;
-
             let secondHighestBidders = uniqueBids.length > 1 ? bids.filter(b => b.bid === secondHighestBid).map(b => b.id) : [];
 
             if (winner.stock + game.auctionAmount >= bonus) {
-                // Winner can pay
                 winner.stock += game.auctionAmount;
                 winner.stock -= bonus;
                 winner.winnings = game.auctionAmount;
                 winner.bonusPaid = bonus;
-
                 if (secondHighestBidders.length > 0) {
                     let splitBonus = Math.floor(bonus / secondHighestBidders.length);
                     for (let id of secondHighestBidders) {
@@ -193,119 +206,160 @@ function resolveAuction() {
                 }
                 break;
             } else {
-                // Winner cannot pay
-                if (game.players.length !== 2) {
-                    winner.stock = 0;
-                }
+                if (game.players.length !== 2) winner.stock = 0;
                 winner.bankrupt = true;
                 playersInAuction = playersInAuction.filter(id => id !== winnerId);
             }
         }
     }
 
-    // Check game over
     let maxStock = Math.max(...game.players.map(p => p.stock));
-    if (maxStock >= 200) {
-        game.state = 'gameover';
-    } else {
-        game.state = 'resolution';
-    }
+    game.state = maxStock >= 200 ? 'gameover' : 'resolution';
 }
 
 // ─── Socket Events ─────────────────────────────────────────────────────────
 
 io.on('connection', (socket) => {
-    socket.on('join', (name) => {
-        if (game.state !== 'waiting') {
-            socket.emit('error', 'Game already in progress');
+
+    socket.on('create_room', () => {
+        const code = roomCode();
+        games.set(code, makeGame());
+        socket.join(code);
+        socketRooms.set(socket.id, code);
+        socket.emit('room_created', code);
+    });
+
+    socket.on('join_room', (code) => {
+        code = (code || '').toUpperCase();
+        if (!games.has(code)) {
+            socket.emit('error', 'Room not found');
             return;
         }
-        if (!game.players.find(p => p.id === socket.id)) {
-            game.players.push({
-                id: socket.id,
-                name: name || `Player ${game.players.length + 1}`,
-                stock: 10,
-                bid: null,
-                bankrupt: false,
-                winnings: 0,
-                bonusPaid: 0,
-                bonusReceived: 0,
-                isBot: false
-            });
-        }
-        io.emit('state', getPublicGameState());
+        socket.join(code);
+        socketRooms.set(socket.id, code);
+        socket.emit('room_joined', code);
+        const game = games.get(code);
+        socket.emit('state', getPublicGameState(game));
+    });
+
+    function withGame(socket, fn) {
+        const roomCode = socketRooms.get(socket.id);
+        if (!roomCode) return;
+        const game = games.get(roomCode);
+        if (!game) return;
+        fn(game, roomCode);
+    }
+
+    socket.on('join', (name) => {
+        withGame(socket, (game, roomCode) => {
+            if (game.state !== 'waiting') {
+                socket.emit('error', 'Game already in progress');
+                return;
+            }
+            if (!game.players.find(p => p.id === socket.id)) {
+                game.players.push({
+                    id: socket.id,
+                    name: name || `Player ${game.players.length + 1}`,
+                    stock: 10,
+                    bid: null,
+                    bankrupt: false,
+                    winnings: 0,
+                    bonusPaid: 0,
+                    bonusReceived: 0,
+                    isBot: false
+                });
+            }
+            emitState(roomCode);
+        });
     });
 
     socket.on('add_bot', () => {
-        addBot();
+        withGame(socket, (game, roomCode) => addBot(game, roomCode));
     });
 
     socket.on('remove_bot', () => {
-        removeBot();
+        withGame(socket, (game, roomCode) => removeBot(game, roomCode));
     });
 
     socket.on('start_game', () => {
-        if (game.state === 'waiting' && game.players.length >= 2) {
-            game.state = 'bidding';
-            game.auctionAmount = 10;
-            game.round = 1;
-            game.players.forEach(p => {
-                p.stock = 10;
-                p.bid = null;
-                p.bankrupt = false;
-                p.winnings = 0;
-                p.bonusPaid = 0;
-                p.bonusReceived = 0;
-            });
-            io.emit('state', getPublicGameState());
-            triggerBotBids();
-        }
+        withGame(socket, (game, roomCode) => {
+            if (game.state === 'waiting' && game.players.length >= 2) {
+                game.state = 'bidding';
+                game.auctionAmount = 10;
+                game.round = 1;
+                game.players.forEach(p => {
+                    p.stock = 10;
+                    p.bid = null;
+                    p.bankrupt = false;
+                    p.winnings = 0;
+                    p.bonusPaid = 0;
+                    p.bonusReceived = 0;
+                });
+                emitState(roomCode);
+                triggerBotBids(game, roomCode);
+            }
+        });
     });
 
     socket.on('submit_bid', (bidAmount) => {
-        if (game.state === 'bidding') {
-            let player = game.players.find(p => p.id === socket.id);
-            if (player && player.bid === null) {
-                player.bid = parseInt(bidAmount, 10);
-                if (isNaN(player.bid) || player.bid < 0) player.bid = 0;
-
-                io.emit('state', getPublicGameState());
-                checkAllBids();
+        withGame(socket, (game, roomCode) => {
+            if (game.state === 'bidding') {
+                let player = game.players.find(p => p.id === socket.id);
+                if (player && player.bid === null) {
+                    player.bid = parseInt(bidAmount, 10);
+                    if (isNaN(player.bid) || player.bid < 0) player.bid = 0;
+                    emitState(roomCode);
+                    checkAllBids(game, roomCode);
+                }
             }
-        }
+        });
     });
 
     socket.on('next_round', () => {
-        if (game.state === 'resolution') {
-            game.state = 'bidding';
-            game.round++;
-            game.auctionAmount = Math.max(...game.players.map(p => p.stock));
-            game.players.forEach(p => {
-                p.bid = null;
-            });
-            io.emit('state', getPublicGameState());
-            triggerBotBids();
-        }
+        withGame(socket, (game, roomCode) => {
+            if (game.state === 'resolution') {
+                game.state = 'bidding';
+                game.round++;
+                game.auctionAmount = Math.max(...game.players.map(p => p.stock));
+                game.players.forEach(p => { p.bid = null; });
+                emitState(roomCode);
+                triggerBotBids(game, roomCode);
+            }
+        });
     });
 
     socket.on('play_again', () => {
-        if (game.state === 'gameover' || game.state === 'resolution') {
-            game.state = 'waiting';
-            game.players.forEach(p => {
-                p.stock = 10;
-                p.bid = null;
-            });
-            io.emit('state', getPublicGameState());
-        }
+        withGame(socket, (game, roomCode) => {
+            if (game.state === 'gameover' || game.state === 'resolution') {
+                game.state = 'waiting';
+                game.players.forEach(p => {
+                    p.stock = 10;
+                    p.bid = null;
+                });
+                emitState(roomCode);
+            }
+        });
     });
 
     socket.on('disconnect', () => {
-        game.players = game.players.filter(p => p.id !== socket.id);
-        if (game.players.length < 2 && game.state !== 'waiting') {
-            game.state = 'waiting';
-            clearBotTimers();
+        const roomCode = socketRooms.get(socket.id);
+        if (roomCode) {
+            const game = games.get(roomCode);
+            if (game) {
+                game.players = game.players.filter(p => p.id !== socket.id);
+                if (game.players.length === 0) {
+                    clearBotTimers(game);
+                    games.delete(roomCode);
+                } else if (game.players.filter(p => !p.isBot).length === 0 && game.state !== 'waiting') {
+                    game.state = 'waiting';
+                    clearBotTimers(game);
+                    emitState(roomCode);
+                } else {
+                    emitState(roomCode);
+                }
+            }
+            socketRooms.delete(socket.id);
         }
-        io.emit('state', getPublicGameState());
     });
 });
 
