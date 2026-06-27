@@ -42,30 +42,64 @@ function makeGame() {
         botTimers: {},
         timer: null,
         useTimer: false,
+        partyMode: false,
+        revealTimer: null,
         nextReady: new Set()
     };
 }
 
+function getRevealData(game) {
+    var sorted = [...game.players].filter(function(p) { return p.bid !== null; }).sort(function(a, b) { return b.bid - a.bid; });
+    var bidVals = sorted.map(function(p) { return p.bid; });
+    var uniqueBids = [...new Set(bidVals)].sort(function(a, b) { return b - a; });
+    var highestBid = uniqueBids[0] || 0;
+    var secondHighestBid = uniqueBids.length > 1 ? uniqueBids[1] : 0;
+    var bonus = highestBid - secondHighestBid;
+
+    return {
+        sorted: sorted.map(function(p, i) {
+            return {
+                id: p.id,
+                name: p.name,
+                bid: p.bid,
+                isBot: p.isBot || false,
+                rank: i === 0 ? 1 : (bidVals[i] === bidVals[i - 1] ? null : i + 1)
+            };
+        }),
+        highestBid: highestBid,
+        secondHighestBid: secondHighestBid,
+        bonus: bonus > 0 ? bonus : 0
+    };
+}
+
 function getPublicGameState(game) {
+    var reveal = null;
+    if (game.state === 'reveal') {
+        reveal = getRevealData(game);
+    }
     return {
         state: game.state,
         auctionAmount: game.auctionAmount,
         round: game.round,
         useTimer: game.useTimer,
+        partyMode: game.partyMode,
         nextReady: [...game.nextReady],
-        players: game.players.map(p => ({
-            id: p.id,
-            name: p.name,
-            stock: p.stock,
-            hasBid: p.bid !== null,
-            bid: game.state === 'resolution' || game.state === 'gameover' ? p.bid : null,
-            bankrupt: p.bankrupt,
-            winnings: p.winnings,
-            bonusPaid: p.bonusPaid,
-            bonusReceived: p.bonusReceived,
-            isBot: p.isBot || false,
-            connected: p.connected !== false
-        }))
+        reveal: reveal,
+        players: game.players.map(function(p) {
+            return {
+                id: p.id,
+                name: p.name,
+                stock: p.stock,
+                hasBid: p.bid !== null,
+                bid: game.state === 'resolution' || game.state === 'gameover' || game.state === 'reveal' ? p.bid : null,
+                bankrupt: p.bankrupt,
+                winnings: p.winnings,
+                bonusPaid: p.bonusPaid,
+                bonusReceived: p.bonusReceived,
+                isBot: p.isBot || false,
+                connected: p.connected !== false
+            };
+        })
     };
 }
 
@@ -91,7 +125,7 @@ function addBot(game, roomCode) {
     const usedNames = new Set(game.players.map(p => p.name));
     const available = BOT_NAMES.filter(n => !usedNames.has(n));
     const name = available.length > 0 ? available[Math.floor(Math.random() * available.length)] : 'Pirate Bot';
-    const botId = `bot_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const botId = 'bot_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
     const archetype = BOT_ARCHETYPES[Math.floor(Math.random() * BOT_ARCHETYPES.length)];
     game.players.push({
         id: botId,
@@ -175,6 +209,13 @@ function clearBiddingTimer(game) {
     }
 }
 
+function clearRevealTimer(game) {
+    if (game.revealTimer) {
+        clearTimeout(game.revealTimer);
+        game.revealTimer = null;
+    }
+}
+
 // ─── Stale Player Cleanup ─────────────────────────────────────────────────
 
 function cleanupStalePlayers() {
@@ -195,8 +236,18 @@ function checkAllBids(game, roomCode) {
     if (game.players.every(p => p.bid !== null)) {
         clearBiddingTimer(game);
         clearBotTimers(game);
-        resolveAuction(game);
-        emitState(roomCode);
+        if (game.partyMode) {
+            game.state = 'reveal';
+            emitState(roomCode);
+            game.revealTimer = setTimeout(() => {
+                game.revealTimer = null;
+                resolveAuction(game);
+                emitState(roomCode);
+            }, 20000);
+        } else {
+            resolveAuction(game);
+            emitState(roomCode);
+        }
     }
 }
 
@@ -302,7 +353,6 @@ io.on('connection', (socket) => {
     socket.on('join', (name) => {
         withGame(socket, (game, roomCode) => {
             if (game.state !== 'waiting') {
-                // Try reconnect — match by name to a disconnected player
                 const existing = game.players.find(p => p.name === name && p.connected === false);
                 if (existing) {
                     existing.id = socket.id;
@@ -314,12 +364,10 @@ io.on('connection', (socket) => {
                 socket.emit('error', 'Game already in progress');
                 return;
             }
-            // Check if name is already taken by a connected player
             if (game.players.find(p => p.name === name && p.connected !== false)) {
                 socket.emit('error', 'Name already taken');
                 return;
             }
-            // Check if reconnecting to an old slot
             const existing = game.players.find(p => p.name === name);
             if (existing) {
                 existing.id = socket.id;
@@ -330,7 +378,7 @@ io.on('connection', (socket) => {
             }
             game.players.push({
                 id: socket.id,
-                name: name || `Player ${game.players.length + 1}`,
+                name: name || 'Player ' + (game.players.length + 1),
                 stock: 10,
                 bid: null,
                 bankrupt: false,
@@ -359,9 +407,35 @@ io.on('connection', (socket) => {
         });
     });
 
+    socket.on('change_name', (newName) => {
+        withGame(socket, (game, roomCode) => {
+            if (game.state !== 'waiting') return;
+            if (!newName || newName.trim() === '') return;
+            newName = newName.trim().slice(0, 20);
+            // Check if name is taken
+            if (game.players.find(p => p.name === newName && p.id !== socket.id && p.connected !== false)) {
+                socket.emit('error', 'Name already taken');
+                return;
+            }
+            const player = game.players.find(p => p.id === socket.id);
+            if (player) {
+                player.name = newName;
+                emitState(roomCode);
+            }
+        });
+    });
+
+    socket.on('toggle_party_mode', () => {
+        withGame(socket, (game, roomCode) => {
+            game.partyMode = !game.partyMode;
+            emitState(roomCode);
+        });
+    });
+
     socket.on('start_game', () => {
         withGame(socket, (game, roomCode) => {
             if (game.state === 'waiting' && game.players.length >= 2) {
+                clearRevealTimer(game);
                 game.state = 'bidding';
                 game.auctionAmount = 10;
                 game.round = 1;
@@ -388,7 +462,6 @@ io.on('connection', (socket) => {
                     player.bid = parseInt(bidAmount, 10);
                     if (isNaN(player.bid) || player.bid < 0) player.bid = 0;
                     emitState(roomCode);
-                    // Check if only bots remain — resolve immediately
                     if (game.players.filter(p => !p.isBot).every(p => p.bid !== null)) {
                         clearBiddingTimer(game);
                     }
@@ -410,6 +483,7 @@ io.on('connection', (socket) => {
                 emitState(roomCode);
                 if (allHumansReady(game)) {
                     game.nextReady.clear();
+                    clearRevealTimer(game);
                     game.state = 'bidding';
                     game.round++;
                     game.auctionAmount = Math.max(...game.players.map(p => p.stock));
@@ -429,6 +503,7 @@ io.on('connection', (socket) => {
                 emitState(roomCode);
                 if (allHumansReady(game)) {
                     clearBiddingTimer(game);
+                    clearRevealTimer(game);
                     game.nextReady.clear();
                     game.state = 'waiting';
                     game.players.forEach(p => {
@@ -437,6 +512,16 @@ io.on('connection', (socket) => {
                     });
                     emitState(roomCode);
                 }
+            }
+        });
+    });
+
+    socket.on('reveal_done', () => {
+        withGame(socket, (game, roomCode) => {
+            if (game.state === 'reveal') {
+                clearRevealTimer(game);
+                resolveAuction(game);
+                emitState(roomCode);
             }
         });
     });
@@ -456,11 +541,11 @@ io.on('connection', (socket) => {
                         game.nextReady.delete(socket.id);
                     }
                 }
-                // If no humans left, reset game
                 if (game.players.filter(p => !p.isBot && p.connected !== false).length === 0 && game.state !== 'waiting') {
                     game.state = 'waiting';
                     clearBiddingTimer(game);
                     clearBotTimers(game);
+                    clearRevealTimer(game);
                     emitState(roomCode);
                 } else {
                     emitState(roomCode);
@@ -475,5 +560,5 @@ io.on('connection', (socket) => {
 
 const PORT = process.env.PORT || 8080;
 server.listen(PORT, () => {
-    console.log(`Server listening on port ${PORT}`);
+    console.log('Server listening on port ' + PORT);
 });
