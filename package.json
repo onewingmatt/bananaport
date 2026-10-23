@@ -4,7 +4,10 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "deploy:verify": "node scripts/deploy-verify.mjs",
+    "gate": "node scripts/gate.mjs",
+    "gate:strict": "node scripts/gate.mjs --strict"
   },
   "repository": {
     "type": "git",
@@ -21,5 +24,13 @@
   "dependencies": {
     "express": "^5.2.1",
     "socket.io": "^4.8.3"
+  },
+  "gate": {
+    "floor": [
+      "deploy:verify"
+    ],
+    "debt": {
+      "test": "the npm placeholder from npm init \u2014 this repo has no test suite at all, so the script exits 1 by design"
+    }
   }
 }

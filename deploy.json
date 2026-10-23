@@ -1,0 +1,6 @@
+{
+  "host": "onewing@10.0.0.145",
+  "container": "bananaport",
+  "files": ["package.json", "server.js"],
+  "url": "https://banana.onewing.top/"
+}
